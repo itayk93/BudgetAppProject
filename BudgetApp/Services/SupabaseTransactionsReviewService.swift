@@ -137,21 +137,24 @@ final class SupabaseTransactionsReviewService {
         self.isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
 
-    func fetchPendingTransactions(for userID: String, hoursBack: Double = 48) async throws -> [Transaction] {
+    func fetchPendingTransactions(for userID: String, hoursBack: Double = 168) async throws -> [Transaction] {
         print("🔍 [DEBUG] Fetching pending transactions for user_id: \(userID), looking back \(hoursBack) hours")
         let now = Date()
         let cutoffDate = now.addingTimeInterval(-(hoursBack * 3600))
 
-        // Save cutoff for local filtering, not sent to Supabase
-        let nowString = isoFormatter.string(from: now)
-        let cutoffString = isoFormatter.string(from: cutoffDate)
-        print("🔍 [DEBUG] Current time: \(nowString), Cutoff time (local filter): \(cutoffString)")
+        // Format the cutoff date for database query
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let cutoffDateString = dateFormatter.string(from: cutoffDate)
 
-        // ❗ Removed created_at filter from query – only user_id + status + order + limit
+        print("🔍 [DEBUG] Current time: \(dateFormatter.string(from: now)), Cutoff time: \(cutoffDateString)")
+
+        // Query with user_id, status, and created_at filters
         let query: [URLQueryItem] = [
             URLQueryItem(name: "select", value: "*"),
             URLQueryItem(name: "user_id", value: "eq.\(userID)"),
             URLQueryItem(name: "status", value: "eq.pending"),
+            URLQueryItem(name: "created_at", value: "gte.\(cutoffDateString)"), // Filter for last week at database level
             URLQueryItem(name: "order", value: "created_at.desc"),
             URLQueryItem(name: "limit", value: "200")
         ]
@@ -168,9 +171,9 @@ final class SupabaseTransactionsReviewService {
         let rows = try decoder.decode([Transaction].self, from: data)
         print("🔍 [DEBUG] Raw decode returned \(rows.count) transactions")
 
-        print("🔍 [DEBUG] About to filter \(rows.count) transactions")
+        print("🔍 [DEBUG] About to filter \(rows.count) transactions for final cleanup")
 
-        // Filter in Swift – by suppress/split, currency, and by 48 hours, if createdAtDate exists
+        // Additional local filtering – by suppress/split and currency only (date already filtered in DB)
         let filteredRows = rows.filter { tx in
             let isSuppressed = tx.suppress_from_automation ?? false
             let wasSplit = tx.manual_split_applied ?? false
@@ -190,22 +193,12 @@ final class SupabaseTransactionsReviewService {
                 return false
             }
 
-            if let created = tx.createdAtDate {
-                let keep = created >= cutoffDate
-                if !keep {
-                    print("🔍 [DEBUG] Dropping tx \(tx.id) – created_at=\(created), before cutoff")
-                }
-                return keep
-            } else {
-                // If no date – don't throw away, to avoid disappearing due to parse issues
-                print("⚠️ [DEBUG] tx \(tx.id) has no createdAtDate, keeping it")
-                return true
-            }
+            return true
         }
 
         print("🔍 [DEBUG] Filtered from \(rows.count) to \(filteredRows.count) transactions")
         for tx in filteredRows.prefix(3) {
-            print("✅ [DEBUG] Keeping tx id=\(tx.id), business_name=\(tx.business_name ?? "N/A")")
+            print("✅ [DEBUG] Keeping tx id=\(tx.id), business_name=\(tx.business_name ?? "N/A"), status=\(tx.status ?? "N/A")")
         }
 
         return filteredRows
