@@ -18,7 +18,7 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
 
     init(
         service: SupabaseTransactionsReviewService? = nil,
-        lookbackHours: Double = 48,
+        lookbackHours: Double = 168,
         transactionsService: TransactionsService? = nil
     ) {
         self.service = service ?? SupabaseTransactionsReviewService()

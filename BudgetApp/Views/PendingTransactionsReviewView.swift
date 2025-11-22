@@ -163,7 +163,7 @@ struct PendingTransactionsReviewView: View {
                     }
                     Spacer()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
                 // 2. כותרת קטגוריה
                 Text(categoryLabel(for: transaction))
