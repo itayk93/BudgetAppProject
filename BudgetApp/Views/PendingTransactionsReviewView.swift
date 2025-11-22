@@ -595,6 +595,9 @@ private struct CategorySelectionSheet: View {
 
     @State private var selectedCategory: String?
     @State private var noteText: String = ""
+    @State private var searchText: String = ""
+    @State private var searchTask: Task<Void, Never>? = nil
+    @State private var filteredCategories: [TransactionCategory] = []
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -605,27 +608,49 @@ private struct CategorySelectionSheet: View {
                         .font(.headline)
                         .frame(maxWidth: .infinity, alignment: .trailing)
 
-                    if categories.isEmpty {
-                        Text("טוען קטגוריות זמינות...")
+                    // Search box
+                    HStack {
+                        TextField("חפש קטגוריה", text: $searchText)
+                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .onChange(of: searchText) { newValue in
+                                performSearch(search: newValue)
+                            }
+                        Image(systemName: "magnifyingglass")
                             .foregroundColor(.secondary)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .padding(.vertical, 40)
-                    } else {
+                    }
+                    .padding(.horizontal, 4)
+
+                    if searchText.isEmpty {
+                        // Show all categories when search is empty
                         LazyVStack(alignment: .trailing, spacing: 12) {
                             ForEach(categories) { category in
-                                Button {
-                                    selectedCategory = category.name
-                                } label: {
-                                    Text(category.name)
-                                        .foregroundColor(selectedCategory == category.name ? .accentColor : .primary)
-                                        .frame(maxWidth: .infinity, alignment: .trailing)
-                                        .padding()
-                                        .background(
-                                            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                                                .fill(selectedCategory == category.name ? Color.accentColor.opacity(0.15) : Color(UIColor.systemGray5))
-                                        )
+                                CategoryButtonView(
+                                    category: category,
+                                    isSelected: selectedCategory == category.name,
+                                    onTap: {
+                                        selectedCategory = category.name
+                                    }
+                                )
+                            }
+                        }
+                    } else {
+                        // Show filtered categories when search has text
+                        if filteredCategories.isEmpty {
+                            Text("לא נמצאו תוצאות")
+                                .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .padding(.vertical, 20)
+                        } else {
+                            LazyVStack(alignment: .trailing, spacing: 12) {
+                                ForEach(filteredCategories) { category in
+                                    CategoryButtonView(
+                                        category: category,
+                                        isSelected: selectedCategory == category.name,
+                                        onTap: {
+                                            selectedCategory = category.name
+                                        }
+                                    )
                                 }
-                                .buttonStyle(.plain)
                             }
                         }
                     }
@@ -681,6 +706,9 @@ private struct CategorySelectionSheet: View {
                 .padding()
             }
             .navigationTitle("החלפת קטגוריה")
+            .onAppear {
+                filteredCategories = categories
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("בטל") { dismiss() }
@@ -689,8 +717,56 @@ private struct CategorySelectionSheet: View {
         }
     }
 
+    private func performSearch(search: String) {
+        // Cancel previous search task
+        searchTask?.cancel()
+
+        // Create a new task with a delay
+        searchTask = Task {
+            // Wait for 0.5 seconds of inactivity before performing the search
+            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+
+            // Perform search on the main thread
+            await MainActor.run {
+                if !Task.isCancelled {
+                    let lowercasedSearch = search.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
+                    if lowercasedSearch.isEmpty {
+                        filteredCategories = categories
+                    } else {
+                        filteredCategories = categories.filter { category in
+                            category.name.lowercased().contains(lowercasedSearch)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     private var noteValue: String? {
         let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    // Subview for category button to keep the code clean
+    private struct CategoryButtonView: View {
+        let category: TransactionCategory
+        let isSelected: Bool
+        let onTap: () -> Void
+
+        var body: some View {
+            Button {
+                onTap()
+            } label: {
+                Text(category.name)
+                    .foregroundColor(isSelected ? .accentColor : .primary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding()
+                    .background(
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(UIColor.systemGray5))
+                    )
+            }
+            .buttonStyle(.plain)
+        }
     }
 }
