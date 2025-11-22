@@ -8,7 +8,7 @@ struct PendingTransactionsReviewView: View {
     @State private var heroNoteExpanded = false
     @State private var heroNoteText = ""
     @State private var toastMessage: String?
-    @State private var startSplitFlow = false
+    @State private var splitTransactionTarget: Transaction?
     @Environment(\.dismiss) private var dismiss
 
     private let swipeThreshold: CGFloat = 110
@@ -19,16 +19,18 @@ struct PendingTransactionsReviewView: View {
 
     var body: some View {
         ZStack(alignment: .top) {
-            Color.groupedBackground.ignoresSafeArea()
+            Color(UIColor.systemGray5).ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
                     heroSection
-                    Spacer().frame(height: 30)
+                    if let transaction = currentTransaction {
+                        heroFooter(for: transaction)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 18)
+                .padding(.top, 12)
                 .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+                .padding(.bottom, 32)
             }
         }
         .navigationTitle("אישור עסקאות")
@@ -78,6 +80,42 @@ struct PendingTransactionsReviewView: View {
                         print("❌ splitTransaction failed:", error)
                         }
                     }
+                }
+            )
+        }
+        .sheet(item: $splitTransactionTarget) { transaction in
+            let trimmedCategoryNames = viewModel.categories
+                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+                .filter { !$0.isEmpty }
+            var uniqueCategories = Set(trimmedCategoryNames)
+            let effectiveCategory = transaction.effectiveCategoryName
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            if !effectiveCategory.isEmpty {
+                uniqueCategories.insert(effectiveCategory)
+            }
+            var availableCategories = Array(uniqueCategories).sorted()
+            if availableCategories.isEmpty {
+                let fallback = effectiveCategory.isEmpty ? "הוצאות משתנות" : effectiveCategory
+                availableCategories = [fallback]
+            }
+            return SplitTransactionSheet(
+                transaction: transaction,
+                availableCategories: availableCategories,
+                onSubmit: { originalTransactionId, splits in
+                    Task { @MainActor in
+                        do {
+                            try await viewModel.splitTransaction(
+                                transaction,
+                                originalTransactionId: originalTransactionId,
+                                splits: splits
+                            )
+                        } catch {
+                            viewModel.errorMessage = error.localizedDescription
+                        }
+                    }
+                },
+                onSuccess: {
+                    splitTransactionTarget = nil
                 }
             )
         }
@@ -258,8 +296,7 @@ struct PendingTransactionsReviewView: View {
                 pendingCategoryChange = transaction
             },
             HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
-                startSplitFlow = true
-                pendingCategoryChange = transaction
+                splitTransactionTarget = transaction
             },
             HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
                 showToastMessage("סומן כהפקדה לחיסכון.")
@@ -342,6 +379,93 @@ struct PendingTransactionsReviewView: View {
         }
         .padding(.horizontal, 12)
         .padding(.bottom, 18)
+    }
+
+    private func heroFooter(for transaction: Transaction) -> some View {
+        let remaining = max(viewModel.transactions.count - 1, 0)
+        let isProcessing = viewModel.processingTransactionID == transaction.id
+        return VStack(spacing: 16) {
+            VStack(spacing: 4) {
+                Text("נותרו עוד")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                Text("\(remaining)")
+                    .font(.largeTitle)
+                    .fontWeight(.semibold)
+                Text("עסקאות ממתינות")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity)
+
+            HStack(spacing: 12) {
+                footerActionButton(
+                    title: "לערוך",
+                    systemIcon: "square.and.pencil",
+                    filled: false,
+                    action: {
+                        pendingCategoryChange = transaction
+                    }
+                )
+                footerActionButton(
+                    title: "להמשיך",
+                    systemIcon: "arrowshape.turn.up.right",
+                    filled: true,
+                    action: {
+                        guard !isProcessing else { return }
+                        Task {
+                            await viewModel.approve(transaction)
+                        }
+                    },
+                    disabled: isProcessing
+                )
+            }
+
+            Text("שמרנו את ההוצאה הזו בקטגוריית \(categoryLabel(for: transaction)).")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 26, style: .continuous)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
+        )
+    }
+
+    private func footerActionButton(
+        title: String,
+        systemIcon: String,
+        filled: Bool,
+        action: @escaping () -> Void,
+        disabled: Bool = false
+    ) -> some View {
+        Button(action: action) {
+            HStack {
+                Text(title)
+                    .font(.body.weight(.semibold))
+                Spacer()
+                Image(systemName: systemIcon)
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(
+                Group {
+                    if filled {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .fill(Color.accentColor)
+                    } else {
+                        RoundedRectangle(cornerRadius: 16, style: .continuous)
+                            .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                    }
+                }
+            )
+            .foregroundColor(filled ? .white : .accentColor)
+        }
+        .buttonStyle(.plain)
+        .disabled(disabled)
+        .opacity(disabled ? 0.6 : 1)
     }
 
     private var heroLoadingPlaceholder: some View {
