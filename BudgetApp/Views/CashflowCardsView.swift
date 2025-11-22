@@ -1801,11 +1801,11 @@ private extension CashflowCardsView {
                     HStack(spacing: 8) {
                         Image(systemName: categoryIcon(for: category.name))
                             .foregroundColor(.secondary)
-                        Text(category.name).font(.title3).bold()
                         Spacer()
                         if targetValue > 0 {
                             statusBadge(targetValue: targetValue, spent: category.totalSpent)
                         }
+                        Text(category.name).font(.title3).bold()
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {

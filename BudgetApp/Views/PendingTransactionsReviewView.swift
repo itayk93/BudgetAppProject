@@ -23,93 +23,95 @@ struct PendingTransactionsReviewView: View {
 
     var body: some View {
         contentView
-        .navigationTitle("אישור עסקאות")
-        .navigationBarTitleDisplayMode(.inline)
-        .task {
-            print("📱 [DEBUG] PendingTransactionsReviewView appeared, refreshing")
-            await viewModel.refresh()
-        }
-        .refreshable {
-            print("📱 [DEBUG] Pull to refresh triggered")
-            await viewModel.refresh()
-        }
-        .sheet(item: $pendingCategoryChange) { transaction in
-            CategorySelectionSheet(
-                transaction: transaction,
-                categories: viewModel.categories,
-                onSelect: { categoryName, note in
-                    Task {
-                        await viewModel.reassign(transaction, to: categoryName, note: note)
-                    }
-                },
-                onSelectForFuture: { categoryName, note in
-                    Task {
-                        await viewModel.reassignForFuture(transaction, to: categoryName, note: note)
-                    }
-                },
-                onDelete: {
-                    Task {
-                        await viewModel.delete(transaction)
-                    }
-                },
-                onHideBusiness: {
-                    Task {
-                        await viewModel.hideBusiness(transaction)
-                    }
-                }
-            )
-        }
-        .sheet(item: $splitTransactionTarget) { transaction in
-            let availableCategories = prepareAvailableCategories(for: transaction)
-            SplitTransactionSheet(
-                transaction: transaction,
-                availableCategories: availableCategories,
-                onSubmit: { originalTransactionId, splits in
-                    Task { @MainActor in
-                        do {
-                            try await viewModel.splitTransaction(
-                                transaction,
-                                originalTransactionId: originalTransactionId,
-                                splits: splits
-                            )
-                        } catch {
-                            viewModel.errorMessage = error.localizedDescription
+            .navigationTitle("אישור עסקאות")
+            .navigationBarTitleDisplayMode(.inline)
+            .task {
+                print("📱 [DEBUG] PendingTransactionsReviewView appeared, refreshing")
+                await viewModel.refresh()
+            }
+            .refreshable {
+                print("📱 [DEBUG] Pull to refresh triggered")
+                await viewModel.refresh()
+            }
+            .sheet(item: $pendingCategoryChange) { transaction in
+                CategorySelectionSheet(
+                    transaction: transaction,
+                    categories: viewModel.categories,
+                    onSelect: { categoryName, note in
+                        Task {
+                            await viewModel.reassign(transaction, to: categoryName, note: note)
+                        }
+                    },
+                    onSelectForFuture: { categoryName, note in
+                        Task {
+                            await viewModel.reassignForFuture(transaction, to: categoryName, note: note)
+                        }
+                    },
+                    onDelete: {
+                        Task {
+                            await viewModel.delete(transaction)
+                        }
+                    },
+                    onHideBusiness: {
+                        Task {
+                            await viewModel.hideBusiness(transaction)
                         }
                     }
-                },
-                onSuccess: {
-                    splitTransactionTarget = nil
-                }
-            )
-        }
-        .overlay(alignment: .top) {
-            if let toastMessage {
-                toastView(message: toastMessage)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .padding(.top, 12)
-                    .padding(.horizontal, 24)
+                )
             }
-        }
-        .onChange(of: viewModel.actionMessage) { newValue, _ in
-            guard let newValue else { return }
-            toastMessage = newValue
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
-                if toastMessage == newValue {
-                    withAnimation {
-                        toastMessage = nil
+            .sheet(item: $splitTransactionTarget) { transaction in
+                let availableCategories = prepareAvailableCategories(for: transaction)
+                SplitTransactionSheet(
+                    transaction: transaction,
+                    availableCategories: availableCategories,
+                    onSubmit: { originalTransactionId, splits in
+                        Task { @MainActor in
+                            do {
+                                try await viewModel.splitTransaction(
+                                    transaction,
+                                    originalTransactionId: originalTransactionId,
+                                    splits: splits
+                                )
+                            } catch {
+                                viewModel.errorMessage = error.localizedDescription
+                            }
+                        }
+                    },
+                    onSuccess: {
+                        splitTransactionTarget = nil
                     }
-                    viewModel.actionMessage = nil
+                )
+            }
+            .overlay(alignment: .top) {
+                if let toastMessage {
+                    toastView(message: toastMessage)
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                        .padding(.top, 12)
+                        .padding(.horizontal, 24)
                 }
             }
-        }
-        .onChange(of: viewModel.transactions.first?.id) { _, _ in
-            dragOffset = .zero
-            heroNoteExpanded = false
-            heroNoteText = currentTransaction?.notes ?? ""
-            moveFlowMonthExpanded = false
-            moveFlowMonthError = nil
-        }
-        .environment(\.layoutDirection, .rightToLeft)
+            .onChange(of: viewModel.actionMessage) { newValue, _ in
+                guard let newValue else { return }
+                toastMessage = newValue
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
+                    if toastMessage == newValue {
+                        withAnimation {
+                            toastMessage = nil
+                        }
+                        viewModel.actionMessage = nil
+                    }
+                }
+            }
+            .onChange(of: viewModel.transactions.first?.id) { _, _ in
+                dragOffset = .zero
+                heroNoteExpanded = false
+                heroNoteText = currentTransaction?.notes ?? ""
+                moveFlowMonthExpanded = false
+                moveFlowMonthError = nil
+            }
+            // RTL גלובלי – ה־HStackים של הכפתורים נשארים כמו בעבר,
+            // ואת הכרטיס הצהוב אנחנו מיישרים ידנית לצד ימין.
+            .environment(\.layoutDirection, .rightToLeft)
     }
 
     private var contentView: some View {
@@ -141,11 +143,14 @@ struct PendingTransactionsReviewView: View {
         }
     }
 
+    // MARK: - Yellow hero card
+
     private func heroCardView(_ transaction: Transaction) -> some View {
         VStack(spacing: 0) {
-            VStack(alignment: .trailing, spacing: 8) {
+            // חלק הכותרת הצהוב
+            VStack(alignment: .leading, spacing: 8) {
+                // 1. כפתור סגירה – חזותית בצד ימין-עליון ב־RTL
                 HStack {
-                    Spacer()
                     Button {
                         dismiss()
                     } label: {
@@ -156,42 +161,53 @@ struct PendingTransactionsReviewView: View {
                             .background(Color.black.opacity(0.25))
                             .clipShape(Circle())
                     }
+                    Spacer()
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                // 2. כותרת קטגוריה
                 Text(categoryLabel(for: transaction))
                     .font(.subheadline)
                     .fontWeight(.semibold)
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
+                // 3. סכום ראשי
                 Text("\(currencySymbol(for: transaction.currency))\(heroAmountText(transaction.absoluteAmount))")
                     .font(.system(size: 42, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
+                // 4. שם העסק / תיאור
                 Text(transaction.business_name ?? transaction.payment_method ?? "עסקה ממתינה")
                     .font(.headline)
                     .foregroundColor(.white.opacity(0.95))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
+                // 5. תאריך עסקה
                 Text(formattedPaymentDate(for: transaction))
                     .font(.caption2)
                     .foregroundColor(.white.opacity(0.75))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
+                // 6. חודש תזרים
                 Text("חודש תזרים: \(displayedFlowMonth(for: transaction))")
                     .font(.caption2)
                     .foregroundColor(.white.opacity(0.75))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .frame(maxWidth: .infinity, alignment: .trailing)
-            .multilineTextAlignment(.trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
             .padding(.top, 20)
             .padding(.bottom, 16)
             .background(heroYellowColor)
 
+            // אזור הלבן עם האקשנים
             VStack(spacing: 12) {
                 heroNoteEditor(for: transaction)
                 heroMoveFlowMonthEditor(for: transaction)
@@ -289,16 +305,16 @@ struct PendingTransactionsReviewView: View {
     private func heroActions(for transaction: Transaction) -> [HeroAction] {
         [
             HeroAction(id: "move", icon: "arrowshape.turn.up.right", title: "להזיז את ההוצאה") {
-                print("🔄 [HERO ACTION] Move tapped for tx=\\(transaction.id)")
+                print("🔄 [HERO ACTION] Move tapped for tx=\(transaction.id)")
                 pendingCategoryChange = transaction
             },
-                HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
-                    splitTransactionTarget = transaction
-                },
-                HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
-                    showToastMessage("סומן כהפקדה לחיסכון.")
-                }
-            ]
+            HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
+                splitTransactionTarget = transaction
+            },
+            HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
+                showToastMessage("סומן כהפקדה לחיסכון.")
+            }
+        ]
     }
 
     private func heroNoteEditor(for transaction: Transaction) -> some View {
@@ -351,12 +367,12 @@ struct PendingTransactionsReviewView: View {
                     .padding(.horizontal, 6)
             }
         }
-            .padding(.horizontal, 12)
-            .padding(.bottom, 18)
+        .padding(.horizontal, 12)
+        .padding(.bottom, 18)
     }
 
     private func heroMoveFlowMonthEditor(for transaction: Transaction) -> some View {
-        return VStack(alignment: .trailing, spacing: 10) {
+        VStack(alignment: .trailing, spacing: 10) {
             actionCardButton(
                 title: moveFlowMonthExpanded ? "בטל העברת תזרים" : "העברת תזרים לחודש אחר",
                 systemIcon: "calendar.badge.plus"
@@ -683,7 +699,7 @@ struct PendingTransactionsReviewView: View {
     private var heroYellowColor: Color {
         Color(red: 241/255, green: 193/255, blue: 26/255)
     }
-    
+
     private func prepareAvailableCategories(for transaction: Transaction) -> [String] {
         let trimmedCategoryNames = viewModel.categories
             .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
