@@ -38,6 +38,8 @@ struct CashflowCardsView: View {
     @State private var monthlyTargetEditingValue: Double?
     @State private var transactionFilter = TransactionFilter()
     @State private var showingPendingTransactionsSheet = false
+    @State private var transactionToEdit: Transaction?
+    @State private var transactionToShowDetails: Transaction?
 
     var body: some View {
         NavigationStack {
@@ -136,6 +138,37 @@ struct CashflowCardsView: View {
             }
             .sheet(isPresented: $showingPendingTransactionsSheet) {
                 PendingTransactionsReviewView()
+            }
+            .sheet(item: $transactionToEdit) { transaction in
+                EditTransactionView(
+                    transaction: transaction,
+                    onSave: { updatedTransaction in
+                        // Update the transaction in the UI by calling the view model
+                        // For now, we'll just refresh the data
+                        Task {
+                            await vm.refreshData()
+                            await pendingTxsVm.refresh()
+                        }
+                    },
+                    onDelete: { transactionToDelete in
+                        // Handle transaction deletion
+                        // Use the PendingTransactionsReviewViewModel to delete the transaction
+                        Task {
+                            // If it's a pending transaction, use the appropriate service
+                            if transactionToDelete.status == "pending" {
+                                await pendingTxsVm.delete(transactionToDelete)
+                            }
+                            await vm.refreshData()
+                            await pendingTxsVm.refresh()
+                        }
+                    },
+                    onCancel: {
+                        // Handle cancel
+                    }
+                )
+            }
+            .sheet(item: $transactionToShowDetails) { transaction in
+                TransactionDetailsView(transaction: transaction)
             }
         }
         .onAppear {
@@ -299,7 +332,13 @@ struct CashflowCardsView: View {
             GroupSectionCard(
                 group: group,
                 accent: groupAccentColor(for: group.title),
-                currency: vm.selectedCashFlow?.currency ?? "ILS"
+                currency: vm.selectedCashFlow?.currency ?? "ILS",
+                onEditTransaction: { transaction in
+                    transactionToEdit = transaction
+                },
+                onViewTransactionDetails: { transaction in
+                    transactionToShowDetails = transaction
+                }
             )
 
         case .category(let cat):
@@ -316,7 +355,13 @@ struct CashflowCardsView: View {
                     editingBudgetValue = cat.target
                     selectedCategoryForBudgetEdit = cat
                     showingEditTargetSheet = true
-                } : nil
+                } : nil,
+                onEditTransaction: { transaction in
+                    transactionToEdit = transaction
+                },
+                onViewTransactionDetails: { transaction in
+                    transactionToShowDetails = transaction
+                }
             )
         }
     }
@@ -1604,7 +1649,17 @@ private extension CashflowCardsView {
     }
 
     private func groupSection(group: CashFlowDashboardViewModel.GroupSummary, accent: Color) -> some View {
-        GroupSectionCard(group: group, accent: accent, currency: vm.selectedCashFlow?.currency ?? "ILS")
+        GroupSectionCard(
+            group: group,
+            accent: accent,
+            currency: vm.selectedCashFlow?.currency ?? "ILS",
+            onEditTransaction: { transaction in
+                transactionToEdit = transaction
+            },
+            onViewTransactionDetails: { transaction in
+                transactionToShowDetails = transaction
+            }
+        )
     }
 
     private func transactionRow(_ t: Transaction, currency: String, highlight: Color) -> some View {
@@ -1777,6 +1832,8 @@ private extension CashflowCardsView {
         let isWeekly: Bool
         let onEdit: (() -> Void)?
         let onEditBudget: (() -> Void)?
+        let onEditTransaction: (Transaction) -> Void
+        let onViewTransactionDetails: (Transaction) -> Void
         @State private var expandedWeek: Int? = nil
         @State private var showMonthlyTransactions = false
 
@@ -1886,7 +1943,7 @@ private extension CashflowCardsView {
                                         } else {
                                             VStack(spacing: 8) {
                                                 ForEach(weekTransactions, id: \.id) { tx in
-                                                    weeklyTransactionRow(tx, highlight: accentColor, currency: currency)
+                                                    weeklyTransactionRow(tx, highlight: accentColor, currency: currency, onEditTransaction: onEditTransaction, onViewDetails: onViewTransactionDetails)
                                                 }
                                             }
                                             .padding(.horizontal, 16)
@@ -1929,7 +1986,7 @@ private extension CashflowCardsView {
                         DisclosureGroup(isExpanded: $showMonthlyTransactions) {
                             VStack(spacing: 10) {
                                 ForEach(category.transactions, id: \.id) { t in
-                                    monthlyTransactionRow(t)
+                                    monthlyTransactionRow(t, onEditTransaction: onEditTransaction, onViewDetails: onViewTransactionDetails)
                                 }
                             }
                             .transition(.opacity)
@@ -2009,7 +2066,7 @@ private extension CashflowCardsView {
             guard let d else { return "" }; let f = DateFormatter(); f.locale = Locale(identifier: "he_IL"); f.dateFormat = "d.M.yy"; return f.string(from: d)
         }
         @ViewBuilder
-        private func weeklyTransactionRow(_ t: Transaction, highlight: Color, currency: String) -> some View {
+        private func weeklyTransactionRow(_ t: Transaction, highlight: Color, currency: String, onEditTransaction: @escaping (Transaction) -> Void, onViewDetails: @escaping (Transaction) -> Void) -> some View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(dateString(t.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
@@ -2019,9 +2076,19 @@ private extension CashflowCardsView {
                     }
                     .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: t)) {
-                        Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
-                    }
+                    TransactionMenuView(
+                        transaction: t,
+                        onEdit: { transaction in
+                            onEditTransaction(transaction)
+                        },
+                        onDelete: { transaction in
+                            // Handle delete action
+                        },
+                        onApprove: { transaction in
+                            // Handle approve action for pending transactions
+                        },
+                        onViewDetails: onViewDetails
+                    )
                 }
                 Text(t.business_name?.isEmpty == false ? t.business_name! : "—").font(.subheadline).foregroundColor(t.business_name?.isEmpty == false ? .primary : .secondary).frame(maxWidth: .infinity, alignment: .leading)
                 if let note = t.notes, !note.isEmpty { Text(note).font(.footnote).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
@@ -2030,7 +2097,7 @@ private extension CashflowCardsView {
             .padding(.vertical, 4)
         }
         @ViewBuilder
-        private func monthlyTransactionRow(_ t: Transaction) -> some View {
+        private func monthlyTransactionRow(_ t: Transaction, onEditTransaction: @escaping (Transaction) -> Void = { _ in }, onViewDetails: @escaping (Transaction) -> Void = { _ in }) -> some View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(dateString(t.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
@@ -2040,9 +2107,19 @@ private extension CashflowCardsView {
                     }
                     .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: t)) {
-                        Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
-                    }
+                    TransactionMenuView(
+                        transaction: t,
+                        onEdit: { transaction in
+                            onEditTransaction(transaction)
+                        },
+                        onDelete: { transaction in
+                            // Handle delete action
+                        },
+                        onApprove: { transaction in
+                            // Handle approve action for pending transactions
+                        },
+                        onViewDetails: onViewDetails
+                    )
                 }
                 Text(t.business_name?.isEmpty == false ? t.business_name! : "—").font(.subheadline).foregroundColor(.primary).frame(maxWidth: .infinity, alignment: .leading)
                 if let note = t.notes, !note.isEmpty { Text(note).font(.footnote).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
@@ -2166,6 +2243,8 @@ private extension CashflowCardsView {
         let group: CashFlowDashboardViewModel.GroupSummary
         let accent: Color
         let currency: String
+        let onEditTransaction: (Transaction) -> Void
+        let onViewTransactionDetails: (Transaction) -> Void
         var body: some View {
             SectionCard(title: group.title, accent: accent, expectedLabel: "צפוי לצאת", expectedValue: group.target, actualLabel: "יצא", actualValue: group.totalSpent, currency: currency) {
                 VStack(spacing: 0) {
@@ -2176,7 +2255,7 @@ private extension CashflowCardsView {
                     }
                     .padding(.horizontal, 12).padding(.bottom, 6)
                     ForEach(group.members, id: \.id) { member in
-                        CompactCategoryRow(category: member, currency: currency, onEdit: nil, onEditBudget: nil)
+                        CompactCategoryRow(category: member, currency: currency, onEdit: nil, onEditBudget: nil, onEditTransaction: onEditTransaction, onViewTransactionDetails: onViewTransactionDetails)
                         Divider().padding(.leading, 12)
                     }
                 }
@@ -2189,6 +2268,8 @@ private extension CashflowCardsView {
         let currency: String
         let onEdit: (() -> Void)?
         let onEditBudget: (() -> Void)?
+        let onEditTransaction: (Transaction) -> Void
+        let onViewTransactionDetails: (Transaction) -> Void
         @State private var open = false
         var body: some View {
             VStack(spacing: 8) {
@@ -2202,11 +2283,11 @@ private extension CashflowCardsView {
                     }
                 }
                 .buttonStyle(.plain)
-                if open { VStack(spacing: 8) { ForEach(category.transactions, id: \.id) { t in monthlyRow(t) } }.transition(.opacity) }
+                if open { VStack(spacing: 8) { ForEach(category.transactions, id: \.id) { t in monthlyRow(t, onEditTransaction: onEditTransaction, onViewDetails: onViewTransactionDetails) } }.transition(.opacity) }
             }
             .padding(.horizontal, 12).padding(.vertical, 8)
         }
-        private func monthlyRow(_ t: Transaction) -> some View {
+        private func monthlyRow(_ t: Transaction, onEditTransaction: @escaping (Transaction) -> Void = { _ in }, onViewDetails: @escaping (Transaction) -> Void = { _ in }) -> some View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(dateString(t.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
@@ -2216,9 +2297,19 @@ private extension CashflowCardsView {
                     }
                     .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: t)) {
-                        Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
-                    }
+                    TransactionMenuView(
+                        transaction: t,
+                        onEdit: { transaction in
+                            onEditTransaction(transaction)
+                        },
+                        onDelete: { transaction in
+                            // Handle delete action
+                        },
+                        onApprove: { transaction in
+                            // Handle approve action for pending transactions
+                        },
+                        onViewDetails: onViewDetails
+                    )
                 }
                 Text(t.business_name?.isEmpty == false ? t.business_name! : "—").font(.subheadline).foregroundColor(.primary).frame(maxWidth: .infinity, alignment: .leading)
                 if let note = t.notes, !note.isEmpty { Text(note).font(.footnote).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
@@ -2238,15 +2329,27 @@ struct GroupTransactionRow: View {
         let transaction: Transaction
         let accent: Color
         let currency: String
+        let onEditTransaction: (Transaction) -> Void
+        let onViewTransactionDetails: (Transaction) -> Void
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(dateString(transaction.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
                     Text(formatAmount(abs(transaction.normalizedAmount))).font(.subheadline).foregroundColor(accent).monospacedDigit().frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: transaction)) {
-                        Image(systemName: "ellipsis").foregroundColor(.secondary)
-                    }
+                    TransactionMenuView(
+                        transaction: transaction,
+                        onEdit: { transaction in
+                            onEditTransaction(transaction)
+                        },
+                        onDelete: { transaction in
+                            // Handle delete action
+                        },
+                        onApprove: { transaction in
+                            // Handle approve action for pending transactions
+                        },
+                        onViewDetails: onViewTransactionDetails
+                    )
                 }
                 Text(transaction.business_name?.isEmpty == false ? transaction.business_name! : "—").font(.subheadline).foregroundColor(.primary).frame(maxWidth: .infinity, alignment: .leading)
                 if let note = transaction.notes, !note.isEmpty { Text(note).font(.footnote).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
