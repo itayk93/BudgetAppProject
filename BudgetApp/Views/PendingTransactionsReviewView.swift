@@ -142,6 +142,7 @@ struct PendingTransactionsReviewView: View {
         .onChange(of: viewModel.transactions.first?.id) { _, _ in
             dragOffset = .zero
             heroNoteExpanded = false
+            heroNoteText = currentTransaction?.notes ?? ""
         }
         .environment(\.layoutDirection, .rightToLeft)
     }
