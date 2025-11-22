@@ -5,9 +5,12 @@ struct PendingTransactionsReviewView: View {
     @StateObject private var viewModel = PendingTransactionsReviewViewModel()
     @State private var dragOffset: CGSize = .zero
     @State private var pendingCategoryChange: Transaction?
-    @State private var moveFlowMonthTarget: Transaction?
     @State private var heroNoteExpanded = false
     @State private var heroNoteText = ""
+    @State private var moveFlowMonthExpanded = false
+    @State private var moveFlowMonthText = ""
+    @State private var moveFlowMonthError: String?
+    @State private var isMovingFlowMonth = false
     @State private var toastMessage: String?
     @State private var splitTransactionTarget: Transaction?
     @Environment(\.dismiss) private var dismiss
@@ -53,14 +56,6 @@ struct PendingTransactionsReviewView: View {
                     Task {
                         await viewModel.hideBusiness(transaction)
                     }
-                }
-            )
-        }
-        .sheet(item: $moveFlowMonthTarget) { transaction in
-            MoveTransactionFlowMonthSheet(
-                transaction: transaction,
-                onSubmit: { flowMonth in
-                    try await viewModel.move(transaction, toFlowMonth: flowMonth)
                 }
             )
         }
@@ -111,6 +106,8 @@ struct PendingTransactionsReviewView: View {
             dragOffset = .zero
             heroNoteExpanded = false
             heroNoteText = currentTransaction?.notes ?? ""
+            moveFlowMonthExpanded = false
+            moveFlowMonthError = nil
         }
         .environment(\.layoutDirection, .rightToLeft)
     }
@@ -191,6 +188,7 @@ struct PendingTransactionsReviewView: View {
 
             VStack(spacing: 12) {
                 heroNoteEditor(for: transaction)
+                heroMoveFlowMonthEditor(for: transaction)
                 ForEach(heroActions(for: transaction)) { action in
                     heroActionButton(action)
                 }
@@ -350,8 +348,133 @@ struct PendingTransactionsReviewView: View {
                     .padding(.horizontal, 6)
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.bottom, 18)
+            .padding(.horizontal, 12)
+            .padding(.bottom, 18)
+    }
+
+    private func heroMoveFlowMonthEditor(for transaction: Transaction) -> some View {
+        let trimmed = moveFlowMonthText.trimmingCharacters(in: .whitespacesAndNewlines)
+        return VStack(alignment: .trailing, spacing: 10) {
+            actionCardButton(
+                title: moveFlowMonthExpanded ? "בטל העברת תזרים" : "העברת תזרים לחודש אחר",
+                systemIcon: "calendar.badge.plus"
+            ) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    if moveFlowMonthExpanded {
+                        moveFlowMonthExpanded = false
+                    } else {
+                        moveFlowMonthText = resolvedFlowMonth(for: transaction)
+                        moveFlowMonthError = nil
+                        moveFlowMonthExpanded = true
+                    }
+                }
+            }
+
+            if moveFlowMonthExpanded {
+                VStack(alignment: .trailing, spacing: 10) {
+                    VStack(alignment: .trailing, spacing: 4) {
+                        Text("חודש תזרים חדש (yyyy-MM)")
+                            .font(.footnote.weight(.semibold))
+                            .foregroundColor(.secondary)
+                        TextField("2025-11", text: $moveFlowMonthText)
+                            .textInputAutocapitalization(.never)
+                            .disableAutocorrection(true)
+                            .keyboardType(.numbersAndPunctuation)
+                            .multilineTextAlignment(.trailing)
+                            .font(.title3.monospacedDigit())
+                            .padding(10)
+                            .background(Color(UIColor.systemGray6))
+                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                            .onChange(of: moveFlowMonthText) { newValue in
+                                let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(newValue)
+                                if sanitized != newValue {
+                                    moveFlowMonthText = sanitized
+                                }
+                            }
+                    }
+                    if let error = moveFlowMonthError {
+                        Text(error)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                    HStack(spacing: 12) {
+                        Button("בטל") {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                moveFlowMonthExpanded = false
+                                moveFlowMonthError = nil
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color(UIColor.systemGray5))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+
+                        Button {
+                            submitMoveFlowMonth(transaction)
+                        } label: {
+                            HStack {
+                                if isMovingFlowMonth {
+                                    ProgressView()
+                                        .progressViewStyle(.circular)
+                                }
+                                Text(isMovingFlowMonth ? "מעביר..." : "שמור לחודש זה")
+                                    .font(.body.weight(.semibold))
+                            }
+                            .frame(maxWidth: .infinity)
+                            .padding()
+                            .background(Color.accentColor)
+                            .foregroundColor(.white)
+                            .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .disabled(
+                            !FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) || isMovingFlowMonth
+                        )
+                        .opacity(!FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) || isMovingFlowMonth ? 0.6 : 1)
+                    }
+                }
+                .padding(10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 20, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.04), radius: 12, x: 0, y: 4)
+                )
+            }
+        }
+    }
+
+    private func resolvedFlowMonth(for transaction: Transaction) -> String {
+        if let raw = transaction.flow_month, FlowMonthInputValidator.isValidFlowMonth(raw) {
+            return raw
+        }
+        if let date = transaction.parsedDate {
+            return FlowMonthInputValidator.monthFormatter.string(from: date)
+        }
+        return FlowMonthInputValidator.monthFormatter.string(from: Date())
+    }
+
+    private func submitMoveFlowMonth(_ transaction: Transaction) {
+        guard FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) else {
+            moveFlowMonthError = "הזן חודש תזרים תקין בפורמט yyyy-MM"
+            return
+        }
+        moveFlowMonthError = nil
+        isMovingFlowMonth = true
+        Task {
+            do {
+                try await viewModel.move(transaction, toFlowMonth: moveFlowMonthText)
+                await MainActor.run {
+                    isMovingFlowMonth = false
+                    moveFlowMonthExpanded = false
+                }
+            } catch {
+                await MainActor.run {
+                    moveFlowMonthError = error.localizedDescription
+                    isMovingFlowMonth = false
+                }
+            }
+        }
     }
 
     private func heroFooter(for transaction: Transaction) -> some View {
