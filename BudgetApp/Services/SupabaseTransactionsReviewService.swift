@@ -256,6 +256,20 @@ final class SupabaseTransactionsReviewService {
             markReviewed: false
         )
     }
+
+    func updateFlowMonth(transactionID: String, flowMonth: String) async throws {
+        let trimmed = flowMonth.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw SupabaseServiceError.server(message: "חודש תזרים לא תקין")
+        }
+        try await update(
+            transactionID: transactionID,
+            categoryName: nil,
+            note: nil,
+            markReviewed: false,
+            flowMonth: trimmed
+        )
+    }
     
     func delete(transactionID: String) async throws {
         // For delete, we'll set suppress_from_automation = true and mark as reviewed
@@ -341,14 +355,16 @@ final class SupabaseTransactionsReviewService {
         transactionID: String,
         categoryName: String?,
         note: String?,
-        markReviewed: Bool
+        markReviewed: Bool,
+        flowMonth: String? = nil
     ) async throws {
         let cleanedNote = sanitize(note)
         let payload = TransactionUpdatePayload(
             category_name: categoryName,
             status: markReviewed ? "reviewed" : nil,
             reviewed_at: markReviewed ? isoFormatter.string(from: Date()) : nil,
-            notes: cleanedNote
+            notes: cleanedNote,
+            flow_month: flowMonth
         )
         let encoder = JSONEncoder()
         let body = try encoder.encode(payload)
@@ -435,12 +451,14 @@ private struct TransactionUpdatePayload: Encodable {
     let status: String?
     let reviewed_at: String?
     let notes: String?
+    let flow_month: String?
 
     enum CodingKeys: String, CodingKey {
         case category_name
         case status
         case reviewed_at
         case notes
+        case flow_month
     }
 
     func encode(to encoder: Encoder) throws {
@@ -456,6 +474,9 @@ private struct TransactionUpdatePayload: Encodable {
         }
         if let notes {
             try container.encode(notes, forKey: .notes)
+        }
+        if let flow_month {
+            try container.encode(flow_month, forKey: .flow_month)
         }
     }
 }

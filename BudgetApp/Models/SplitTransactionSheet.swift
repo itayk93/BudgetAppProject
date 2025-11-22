@@ -185,7 +185,7 @@ struct SplitTransactionSheet: View {
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                     .font(.body.monospacedDigit())
                     .onChange(of: entry.flowMonth.wrappedValue) {
-                        let sanitized = sanitizeFlowMonthInput(entry.flowMonth.wrappedValue)
+                        let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(entry.flowMonth.wrappedValue)
                         if sanitized != entry.flowMonth.wrappedValue {
                             entry.flowMonth.wrappedValue = sanitized
                         }
@@ -447,7 +447,7 @@ struct SplitTransactionSheet: View {
             if entry.category.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 return "בחר קטגוריה עבור \(contextLabel)"
             }
-            if !isValidFlowMonth(entry.flowMonth) {
+            if !FlowMonthInputValidator.isValidFlowMonth(entry.flowMonth) {
                 return "קבע חודש תזרים בפורמט yyyy-MM עבור \(contextLabel)"
             }
         }
@@ -494,7 +494,7 @@ struct SplitTransactionSheet: View {
             // Validate and trim required fields
             let trimmedCategory = entry.category.trimmingCharacters(in: .whitespacesAndNewlines)
             let trimmedBusinessName = entry.businessName.trimmingCharacters(in: .whitespacesAndNewlines)
-            let sanitizedFlowMonth = sanitizeFlowMonthInput(entry.flowMonth)
+            let sanitizedFlowMonth = FlowMonthInputValidator.sanitizeFlowMonthInput(entry.flowMonth)
             let trimmedCurrency = currency.trimmingCharacters(in: .whitespacesAndNewlines)
 
             // Check if required fields are valid
@@ -531,13 +531,13 @@ struct SplitTransactionSheet: View {
     }
 
     private func initialFlowMonthString() -> String {
-        if let raw = transaction.flow_month, isValidFlowMonth(raw) {
+        if let raw = transaction.flow_month, FlowMonthInputValidator.isValidFlowMonth(raw) {
             return raw
         }
         if let date = transaction.parsedDate {
-            return Self.monthFormatter.string(from: date)
+            return FlowMonthInputValidator.monthFormatter.string(from: date)
         }
-        return Self.monthFormatter.string(from: Date())
+        return FlowMonthInputValidator.monthFormatter.string(from: Date())
     }
 
     private func resolvedPaymentDate() -> String {
@@ -573,38 +573,6 @@ struct SplitTransactionSheet: View {
         formatter.locale = Locale(identifier: "he_IL")
         return formatter.string(from: date)
     }
-
-    private func sanitizeFlowMonthInput(_ value: String) -> String {
-        let digits = value.filter { $0.isNumber }
-        let cleaned = String(digits.prefix(6))
-        if cleaned.count <= 4 { return cleaned }
-        let year = String(cleaned.prefix(4))
-        var month = String(cleaned.dropFirst(4))
-        if month.count > 2 {
-            month = String(month.prefix(2))
-        }
-        if month.count == 2 {
-            var intVal = Int(month) ?? 1
-            intVal = min(max(intVal, 1), 12)
-            month = String(format: "%02d", intVal)
-        }
-        return "\(year)-\(month)"
-    }
-
-    private func isValidFlowMonth(_ value: String) -> Bool {
-        let trimmed = sanitizeFlowMonthInput(value)
-        guard trimmed.count == 7 else { return false }
-        guard let date = Self.monthFormatter.date(from: trimmed) else { return false }
-        return Self.monthFormatter.string(from: date) == trimmed
-    }
-
-    private static let monthFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.calendar = Calendar(identifier: .gregorian)
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.dateFormat = "yyyy-MM"
-        return formatter
-    }()
 
     private static let isoFormatter: ISO8601DateFormatter = {
         let formatter = ISO8601DateFormatter()

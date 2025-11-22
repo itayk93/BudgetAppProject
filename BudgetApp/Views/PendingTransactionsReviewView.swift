@@ -5,6 +5,7 @@ struct PendingTransactionsReviewView: View {
     @StateObject private var viewModel = PendingTransactionsReviewViewModel()
     @State private var dragOffset: CGSize = .zero
     @State private var pendingCategoryChange: Transaction?
+    @State private var moveFlowMonthTarget: Transaction?
     @State private var heroNoteExpanded = false
     @State private var heroNoteText = ""
     @State private var toastMessage: String?
@@ -52,6 +53,14 @@ struct PendingTransactionsReviewView: View {
                     Task {
                         await viewModel.hideBusiness(transaction)
                     }
+                }
+            )
+        }
+        .sheet(item: $moveFlowMonthTarget) { transaction in
+            MoveTransactionFlowMonthSheet(
+                transaction: transaction,
+                onSubmit: { flowMonth in
+                    try await viewModel.move(transaction, toFlowMonth: flowMonth)
                 }
             )
         }
@@ -281,6 +290,9 @@ struct PendingTransactionsReviewView: View {
             },
             HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
                 splitTransactionTarget = transaction
+            },
+            HeroAction(id: "moveFlowMonth", icon: "calendar.badge.plus", title: "להעביר לחודש תזרים אחר") {
+                moveFlowMonthTarget = transaction
             },
             HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
                 showToastMessage("סומן כהפקדה לחיסכון.")
@@ -577,5 +589,3 @@ private struct HeroAction: Identifiable {
     let title: String
     let action: () -> Void
 }
-
-

@@ -163,6 +163,46 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         processingTransactionID = nil
     }
 
+    func move(_ transaction: Transaction, toFlowMonth flowMonth: String) async throws {
+        guard let service = service else { return }
+        processingTransactionID = transaction.id
+        defer { processingTransactionID = nil }
+        do {
+            try await service.updateFlowMonth(transactionID: transaction.id, flowMonth: flowMonth)
+            if let index = transactions.firstIndex(where: { $0.id == transaction.id }) {
+                let updated = Transaction(
+                    id: transaction.id,
+                    effectiveCategoryName: transaction.effectiveCategoryName,
+                    isIncome: transaction.isIncome,
+                    business_name: transaction.business_name,
+                    payment_method: transaction.payment_method,
+                    createdAtDate: transaction.createdAtDate,
+                    currency: transaction.currency,
+                    absoluteAmount: transaction.absoluteAmount,
+                    notes: transaction.notes,
+                    normalizedAmount: transaction.normalizedAmount,
+                    excluded_from_flow: transaction.excluded_from_flow,
+                    category_name: transaction.category_name,
+                    category: transaction.category,
+                    status: transaction.status,
+                    user_id: transaction.user_id,
+                    suppress_from_automation: transaction.suppress_from_automation,
+                    manual_split_applied: transaction.manual_split_applied,
+                    reviewed_at: transaction.reviewed_at,
+                    source_type: transaction.source_type,
+                    date: transaction.date,
+                    payment_date: transaction.payment_date,
+                    flow_month: flowMonth
+                )
+                transactions[index] = updated
+            }
+            actionMessage = "העברנו את העסקה לחודש \(flowMonth)"
+        } catch {
+            errorMessage = error.localizedDescription
+            throw error
+        }
+    }
+
     func delete(_ transaction: Transaction) async {
         guard let service = service else { return }
         processingTransactionID = transaction.id
