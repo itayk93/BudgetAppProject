@@ -205,6 +205,7 @@ struct PendingTransactionsReviewView: View {
             .background(heroYellowColor)
 
             VStack(spacing: 12) {
+                heroNoteEditor(for: transaction)
                 ForEach(heroActions(for: transaction)) { action in
                     heroActionButton(action)
                 }
@@ -218,7 +219,6 @@ struct PendingTransactionsReviewView: View {
             .padding(.horizontal, 12)
             .padding(.top, 18)
             .padding(.bottom, 20)
-            heroNoteEditor(for: transaction)
         }
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
@@ -288,10 +288,6 @@ struct PendingTransactionsReviewView: View {
 
     private func heroActions(for transaction: Transaction) -> [HeroAction] {
         [
-            HeroAction(id: "note", icon: "text.bubble", title: "הערה") {
-                heroNoteExpanded = true
-                heroNoteText = transaction.notes ?? ""
-            },
             HeroAction(id: "move", icon: "arrowshape.turn.up.right", title: "להזיז את ההוצאה") {
                 print("🔄 [HERO ACTION] Move tapped for tx=\\(transaction.id)")
                 pendingCategoryChange = transaction
