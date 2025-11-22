@@ -32,6 +32,7 @@ To ensure the app can access Supabase data during development, the target reads 
 1. Copy `Secrets/Info.plist.template` → `Secrets/Info.plist` and replace the placeholder Supabase values with your own credentials (the new file is intentionally gitignored).
 2. The app also falls back to explicit environment variables or `.env` entries, so you can override the keys at runtime if needed.
 3. Xcode will automatically pull the values from the info dictionary when running the app.
+4. (Optional) If you prefer a `.env`, copy `.env.example` → `.env`, fill in your real Supabase URL/keys, and make sure the file is added to the app target resources so `DotEnv` can load it at runtime.
 
 ### Key Information:
 - `SUPABASE_SECRET` or `SUPABASE_SECRET_KEY` or `SUPABASE_SERVICE_ROLE_KEY`: Used during development to bypass Row Level Security (RLS) policies

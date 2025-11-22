@@ -11,13 +11,23 @@ class DotEnv {
     }
     
     private func loadEnvFile() {
-        guard let path = Bundle.main.path(forResource: ".env", ofType: nil) else {
-            print("⚠️ [DotEnv] .env file not found in app bundle")
+        // Look for a bundled .env (copied into the app as a resource)
+        let pathInResources = Bundle.main.path(forResource: ".env", ofType: nil)
+        let pathInBundleRoot = Bundle.main.bundleURL.appendingPathComponent(".env").path
+        let path: String?
+
+        if let resourcePath = pathInResources {
+            path = resourcePath
+        } else if FileManager.default.fileExists(atPath: pathInBundleRoot) {
+            path = pathInBundleRoot
+        } else {
+            print("⚠️ [DotEnv] .env file not found in app bundle resources")
             return
         }
+        print("📄 [DotEnv] Loading .env from bundle path: \(path!)")
         
         do {
-            let contents = try String(contentsOfFile: path, encoding: .utf8)
+            let contents = try String(contentsOfFile: path!, encoding: .utf8)
             let lines = contents.components(separatedBy: .newlines)
             
             for line in lines {

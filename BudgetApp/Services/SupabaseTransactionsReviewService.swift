@@ -14,15 +14,22 @@ struct SupabaseCredentials {
             print("❌ [SUPABASE CREDS] No SUPABASE_URL found")
             return nil
         }
+        if SupabaseCredentials.isPlaceholderURL(rawURL) {
+            print("❌ [SUPABASE CREDS] SUPABASE_URL is still a placeholder (\(rawURL)). Please set the real project URL.")
+            return nil
+        }
         let rest = baseURL.appendingPathComponent("rest/v1")
 
         let secret  = SupabaseCredentials.value(for: "SUPABASE_SECRET")
                     ?? SupabaseCredentials.value(for: "SUPABASE_SECRET_KEY")  // Alternative name to match your scheme
         let service = SupabaseCredentials.value(for: "SUPABASE_SERVICE_ROLE_KEY")
-        _ = SupabaseCredentials.value(for: "SUPABASE_ANON_KEY")
+        let anon    = SupabaseCredentials.value(for: "SUPABASE_ANON_KEY")
 
-        let key = secret ?? service // Temporarily disable fallback to ANON for debugging
-        // ?? anon
+        // Prefer the first non-placeholder key in this order: SECRET -> SERVICE_ROLE -> ANON
+        let candidates = [secret, service, anon]
+        let key = candidates
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty && !SupabaseCredentials.isPlaceholderKey($0) }
 
         guard let key, !key.isEmpty else {
             print("❌ [SUPABASE CREDS] No API key found (SECRET / SERVICE_ROLE / ANON all missing)")
@@ -30,14 +37,14 @@ struct SupabaseCredentials {
         }
 
         let keySource: String
-        if SupabaseCredentials.value(for: "SUPABASE_SECRET") != nil {
+        if let secret, !SupabaseCredentials.isPlaceholderKey(secret) {
             keySource = "SECRET"
-        } else if SupabaseCredentials.value(for: "SUPABASE_SECRET_KEY") != nil {
-            keySource = "SECRET_KEY"
-        } else if SupabaseCredentials.value(for: "SUPABASE_SERVICE_ROLE_KEY") != nil {
+        } else if let service, !SupabaseCredentials.isPlaceholderKey(service) {
             keySource = "SERVICE_ROLE"
-        } else {
+        } else if let anon, !SupabaseCredentials.isPlaceholderKey(anon) {
             keySource = "ANON"
+        } else {
+            keySource = "UNKNOWN"
         }
         print("🔐 [SUPABASE CREDS] Using key from \(keySource), prefix=\(key.prefix(8))")
 
@@ -45,15 +52,45 @@ struct SupabaseCredentials {
     }
 
     private static func value(for key: String) -> String? {
-        if let env = ProcessInfo.processInfo.environment[key], !env.isEmpty {
+        // Highest priority: process env
+        if let env = ProcessInfo.processInfo.environment[key],
+           !env.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return env
         }
-        if let bundleValue = Bundle.main.object(forInfoDictionaryKey: key) as? String, !bundleValue.isEmpty {
-            return bundleValue
+
+        // Next: .env (if bundled or copied in)
+        if let dotenv = DotEnv.shared.get(key),
+           !dotenv.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return dotenv
         }
-        // Try to get from .env file using our utility
-        // Note: This will only work if .env file is included in the app bundle
-        return DotEnv.shared.get(key)
+
+        // Finally: Info.plist, but ignore known placeholders
+        if let bundleValue = Bundle.main.object(forInfoDictionaryKey: key) as? String {
+            let trimmed = bundleValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+
+            if key == "SUPABASE_URL", SupabaseCredentials.isPlaceholderURL(trimmed) {
+                return nil
+            }
+            if key.hasPrefix("SUPABASE_"), SupabaseCredentials.isPlaceholderKey(trimmed) {
+                return nil
+            }
+            return trimmed
+        }
+
+        return nil
+    }
+}
+
+private extension SupabaseCredentials {
+    static func isPlaceholderURL(_ raw: String) -> Bool {
+        let lower = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return lower.contains("your-project.supabase.co") || lower.contains("your_project") || lower.contains("your-project")
+    }
+
+    static func isPlaceholderKey(_ raw: String) -> Bool {
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return trimmed.hasPrefix("your_") || trimmed.contains("service_role_or_secret_key_here") || trimmed.contains("public_anon_key_here")
     }
 }
 

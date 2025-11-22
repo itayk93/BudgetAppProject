@@ -54,6 +54,7 @@
 			buildPhases = (
 				2E253C832EA43C1C00DCAB01 /* Sources */,
 				2E253C842EA43C1C00DCAB01 /* Frameworks */,
+				6E7D33F12FF5C7B200D4F9C1 /* Copy .env into app bundle if present */,
 				2E253C852EA43C1C00DCAB01 /* Resources */,
 			);
 			buildRules = (
@@ -113,6 +114,33 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXResourcesBuildPhase section */
+
+/* Begin PBXShellScriptBuildPhase section */
+		6E7D33F12FF5C7B200D4F9C1 /* Copy .env into app bundle if present */ = {
+			isa = PBXShellScriptBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			inputFileListPaths = (
+			);
+			inputPaths = (
+				"$(PROJECT_DIR)/.env",
+				"$(PROJECT_DIR)/BudgetApp/.env",
+			);
+			name = "Copy .env into app bundle if present";
+			outputFileListPaths = (
+			);
+			outputPaths = (
+				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/.env",
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+			userScriptSandboxPaths = (
+				"$(PROJECT_DIR)",
+			);
+			shellPath = /bin/sh;
+			shellScript = "set -e\n# Copy .env from project root or BudgetApp subfolder into the built app bundle (if it exists)\nTARGET_ENV_PATH=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/.env\"\nif [ -f \"${PROJECT_DIR}/.env\" ]; then\n  cp \"${PROJECT_DIR}/.env\" \"${TARGET_ENV_PATH}\"\nelif [ -f \"${PROJECT_DIR}/BudgetApp/.env\" ]; then\n  cp \"${PROJECT_DIR}/BudgetApp/.env\" \"${TARGET_ENV_PATH}\"\nfi\n";
+		};
+/* End PBXShellScriptBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
 		2E253C832EA43C1C00DCAB01 /* Sources */ = {
