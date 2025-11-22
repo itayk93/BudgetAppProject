@@ -143,7 +143,7 @@ struct PendingTransactionsReviewView: View {
 
     private func heroCardView(_ transaction: Transaction) -> some View {
         VStack(spacing: 0) {
-            VStack(alignment: .trailing, spacing: 10) {
+            VStack(alignment: .trailing, spacing: 8) {
                 HStack {
                     Spacer()
                     Button {
@@ -166,28 +166,18 @@ struct PendingTransactionsReviewView: View {
                     .font(.system(size: 42, weight: .bold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .trailing)
-            HStack(alignment: .top, spacing: 16) {
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(transaction.business_name ?? transaction.payment_method ?? "עסקה ממתינה")
-                        .font(.headline)
-                        .foregroundColor(.white.opacity(0.95))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text(transaction.payment_method ?? "")
-                        .font(.footnote)
-                        .foregroundColor(.white.opacity(0.85))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-                VStack(alignment: .trailing, spacing: 4) {
-                    Text(formattedPaymentDate(for: transaction))
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.75))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text("חודש תזרים: \(displayedFlowMonth(for: transaction))")
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.75))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
+                Text(transaction.business_name ?? transaction.payment_method ?? "עסקה ממתינה")
+                    .font(.headline)
+                    .foregroundColor(.white.opacity(0.95))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Text(formattedPaymentDate(for: transaction))
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.75))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Text("חודש תזרים: \(displayedFlowMonth(for: transaction))")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.75))
+                    .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
