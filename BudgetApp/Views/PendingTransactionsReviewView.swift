@@ -179,6 +179,8 @@ struct PendingTransactionsReviewView: View {
                     .foregroundColor(.white.opacity(0.75))
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+            .multilineTextAlignment(.trailing)
             .padding(.horizontal, 24)
             .padding(.top, 20)
             .padding(.bottom, 16)
