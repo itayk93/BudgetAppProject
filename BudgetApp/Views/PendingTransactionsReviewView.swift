@@ -179,6 +179,10 @@ struct PendingTransactionsReviewView: View {
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.75))
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                    Text("חודש תזרים: \(displayedFlowMonth(for: transaction))")
+                        .font(.caption2)
+                        .foregroundColor(.white.opacity(0.75))
+                        .frame(maxWidth: .infinity, alignment: .trailing)
                 }
             }
             .padding(.horizontal, 24)
@@ -471,6 +475,13 @@ struct PendingTransactionsReviewView: View {
                 }
             }
         }
+    }
+
+    private func displayedFlowMonth(for transaction: Transaction) -> String {
+        if moveFlowMonthExpanded && FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) {
+            return moveFlowMonthText
+        }
+        return resolvedFlowMonth(for: transaction)
     }
 
     private func heroFooter(for transaction: Transaction) -> some View {
