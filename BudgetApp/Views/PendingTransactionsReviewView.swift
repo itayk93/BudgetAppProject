@@ -246,18 +246,13 @@ struct PendingTransactionsReviewView: View {
         LongPressGesture(minimumDuration: 0.25)
             .sequenced(before: DragGesture(minimumDistance: 0))
             .onChanged { value in
-                guard viewModel.processingTransactionID == nil && pendingCategoryChange == nil else { return }
+                print("📱 [DEBUG] Drag gesture changed: \(value)")
                 if case .second(true, let drag?) = value {
                     dragOffset = CGSize(width: drag.translation.width, height: 0)
                 }
             }
             .onEnded { value in
-                guard viewModel.processingTransactionID == nil && pendingCategoryChange == nil else {
-                    withAnimation(.spring()) {
-                        dragOffset = .zero
-                    }
-                    return
-                }
+                print("📱 [DEBUG] Drag gesture ended: \(value)")
                 if case .second(true, let drag?) = value {
                     handleDragEnd(translationX: drag.translation.width, transaction: transaction)
                 } else {
@@ -311,8 +306,10 @@ struct PendingTransactionsReviewView: View {
             HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
                 splitTransactionTarget = transaction
             },
-            HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
-                showToastMessage("סומן כהפקדה לחיסכון.")
+            HeroAction(id: "delete", icon: "trash", title: "מחיקת עסקה") {
+                Task {
+                    await viewModel.delete(transaction)
+                }
             }
         ]
     }
@@ -616,6 +613,19 @@ struct PendingTransactionsReviewView: View {
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+
+            Button {
+                dismiss()
+            } label: {
+                Text("סגור")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .padding(.top, 10)
         }
         .frame(maxWidth: .infinity)
         .padding(24)
@@ -626,12 +636,12 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func handleDragEnd(translationX: CGFloat, transaction: Transaction) {
-        if translationX > swipeThreshold {
+        if translationX < -swipeThreshold { // This is the left swipe
             withAnimation {
                 dragOffset = CGSize(width: translationX, height: 0)
             }
             Task { await viewModel.approve(transaction) }
-        } else if translationX < -swipeThreshold {
+        } else if translationX > swipeThreshold { // This is the right swipe
             withAnimation {
                 dragOffset = CGSize(width: translationX, height: 0)
             }
