@@ -90,7 +90,7 @@ struct PendingTransactionsReviewView: View {
                     .padding(.horizontal, 24)
             }
         }
-        .onChange(of: viewModel.actionMessage) { _, newValue in
+        .onChange(of: viewModel.actionMessage) { newValue, _ in
             guard let newValue else { return }
             toastMessage = newValue
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
@@ -286,16 +286,13 @@ struct PendingTransactionsReviewView: View {
                 print("🔄 [HERO ACTION] Move tapped for tx=\\(transaction.id)")
                 pendingCategoryChange = transaction
             },
-            HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
-                splitTransactionTarget = transaction
-            },
-            HeroAction(id: "moveFlowMonth", icon: "calendar.badge.plus", title: "להעביר לחודש תזרים אחר") {
-                moveFlowMonthTarget = transaction
-            },
-            HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
-                showToastMessage("סומן כהפקדה לחיסכון.")
-            }
-        ]
+                HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
+                    splitTransactionTarget = transaction
+                },
+                HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
+                    showToastMessage("סומן כהפקדה לחיסכון.")
+                }
+            ]
     }
 
     private func heroNoteEditor(for transaction: Transaction) -> some View {
@@ -353,7 +350,6 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func heroMoveFlowMonthEditor(for transaction: Transaction) -> some View {
-        let trimmed = moveFlowMonthText.trimmingCharacters(in: .whitespacesAndNewlines)
         return VStack(alignment: .trailing, spacing: 10) {
             actionCardButton(
                 title: moveFlowMonthExpanded ? "בטל העברת תזרים" : "העברת תזרים לחודש אחר",
@@ -385,7 +381,7 @@ struct PendingTransactionsReviewView: View {
                             .padding(10)
                             .background(Color(UIColor.systemGray6))
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .onChange(of: moveFlowMonthText) { newValue in
+                            .onChange(of: moveFlowMonthText) { newValue, _ in
                                 let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(newValue)
                                 if sanitized != newValue {
                                     moveFlowMonthText = sanitized

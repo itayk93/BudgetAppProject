@@ -40,11 +40,11 @@ struct MoveTransactionFlowMonthSheet: View {
                             .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                             .font(.title3.monospacedDigit())
                             .focused($flowFieldFocused)
-                            .onChange(of: flowMonthText) { newValue in
-                                let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(newValue)
-                                if sanitized != newValue {
-                                    flowMonthText = sanitized
-                                }
+                        .onChange(of: flowMonthText) { newValue, _ in
+                            let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(newValue)
+                            if sanitized != newValue {
+                                flowMonthText = sanitized
+                            }
                             }
                         Text("לדוגמה: 2025-12")
                             .font(.caption)

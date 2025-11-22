@@ -54,7 +54,9 @@ struct CategorySelectionSheet: View {
                                 .background(Color(UIColor.systemGray6))
                                 .cornerRadius(14)
                                 .multilineTextAlignment(.trailing)
-                                .onChange(of: searchText, perform: performSearch)
+                            .onChange(of: searchText) { newValue, _ in
+                                performSearch(newValue)
+                            }
                             Image(systemName: "magnifyingglass")
                                 .foregroundColor(.gray)
                                 .padding(.leading, 16)
