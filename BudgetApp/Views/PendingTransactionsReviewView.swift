@@ -310,13 +310,9 @@ struct PendingTransactionsReviewView: View {
                 }
             } label: {
                 HStack(spacing: 12) {
-                    VStack(alignment: .trailing, spacing: 4) {
-                        Text(heroNoteExpanded ? "סגור הערה" : (trimmed.isEmpty ? "הוסף הערה" : "ערוך הערה"))
-                            .font(.body.weight(.semibold))
-                        Text(trimmed.isEmpty ? "הוסיפו מידע שיעזור לכמה שורות" : "הערתך הנוכחית")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                    }
+                    Text(heroNoteExpanded ? "סגור הערה" : (trimmed.isEmpty ? "הוסף הערה" : "ערוך הערה"))
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
                     Spacer()
                     Image(systemName: "square.and.pencil")
                         .font(.title3)
@@ -324,19 +320,14 @@ struct PendingTransactionsReviewView: View {
                 }
                 .padding()
                 .frame(maxWidth: .infinity)
-                .background(Color(UIColor.systemGray5))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                .background(
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(UIColor.systemGray6))
+                        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
+                )
             }
             if heroNoteExpanded {
                 ZStack(alignment: .topTrailing) {
-                    if trimmed.isEmpty {
-                        Text("לדוגמה: טלפון לשליח, בדיקת חשבונית")
-                            .font(.footnote)
-                            .foregroundColor(.secondary)
-                            .padding(.horizontal, 12)
-                            .padding(.top, 14)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                    }
                     TextEditor(text: $heroNoteText)
                         .frame(minHeight: 120)
                         .padding(12)
