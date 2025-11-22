@@ -1,0 +1,9 @@
+# Local macOS cruft
+**/.DS_Store
+BudgetApp/.DS_Store
+
+# User-specific workspace state
+BudgetApp.xcodeproj/project.xcworkspace/xcuserdata/
+
+# Ignore the local Info.plist that will hold secrets
+Secrets/Info.plist
