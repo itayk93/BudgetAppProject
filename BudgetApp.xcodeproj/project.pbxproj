@@ -134,9 +134,6 @@
 				"$(BUILT_PRODUCTS_DIR)/$(PRODUCT_NAME).app/.env",
 			);
 			runOnlyForDeploymentPostprocessing = 0;
-			userScriptSandboxPaths = (
-				"$(PROJECT_DIR)",
-			);
 			shellPath = /bin/sh;
 			shellScript = "set -e\n# Copy .env from project root or BudgetApp subfolder into the built app bundle (if it exists)\nTARGET_ENV_PATH=\"${BUILT_PRODUCTS_DIR}/${PRODUCT_NAME}.app/.env\"\nif [ -f \"${PROJECT_DIR}/.env\" ]; then\n  cp \"${PROJECT_DIR}/.env\" \"${TARGET_ENV_PATH}\"\nelif [ -f \"${PROJECT_DIR}/BudgetApp/.env\" ]; then\n  cp \"${PROJECT_DIR}/BudgetApp/.env\" \"${TARGET_ENV_PATH}\"\nfi\n";
 		};

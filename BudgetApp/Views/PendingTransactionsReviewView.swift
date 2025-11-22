@@ -18,21 +18,7 @@ struct PendingTransactionsReviewView: View {
     }
 
     var body: some View {
-        ZStack(alignment: .top) {
-            Color(UIColor.systemGray5).ignoresSafeArea()
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    heroSection
-                    if let transaction = currentTransaction {
-                        heroFooter(for: transaction)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 12)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 32)
-            }
-        }
+        contentView
         .navigationTitle("אישור עסקאות")
         .navigationBarTitleDisplayMode(.inline)
         .task {
@@ -44,8 +30,7 @@ struct PendingTransactionsReviewView: View {
             await viewModel.refresh()
         }
         .sheet(item: $pendingCategoryChange) { transaction in
-            print("📦 [CATEGORY SHEET] Opening for tx=\\(transaction.id)")
-            return CategorySelectionSheet(
+            CategorySelectionSheet(
                 transaction: transaction,
                 categories: viewModel.categories,
                 onSelect: { categoryName, note in
@@ -67,38 +52,12 @@ struct PendingTransactionsReviewView: View {
                     Task {
                         await viewModel.hideBusiness(transaction)
                     }
-                },
-                onSplit: { originalTransactionId, splits in
-                    Task {
-                        do {
-                            try await viewModel.splitTransaction(
-                                transaction,
-                                originalTransactionId: originalTransactionId,
-                                splits: splits
-                            )
-                        } catch {
-                        print("❌ splitTransaction failed:", error)
-                        }
-                    }
                 }
             )
         }
         .sheet(item: $splitTransactionTarget) { transaction in
-            let trimmedCategoryNames = viewModel.categories
-                .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
-                .filter { !$0.isEmpty }
-            var uniqueCategories = Set(trimmedCategoryNames)
-            let effectiveCategory = transaction.effectiveCategoryName
-                .trimmingCharacters(in: .whitespacesAndNewlines)
-            if !effectiveCategory.isEmpty {
-                uniqueCategories.insert(effectiveCategory)
-            }
-            var availableCategories = Array(uniqueCategories).sorted()
-            if availableCategories.isEmpty {
-                let fallback = effectiveCategory.isEmpty ? "הוצאות משתנות" : effectiveCategory
-                availableCategories = [fallback]
-            }
-            return SplitTransactionSheet(
+            let availableCategories = prepareAvailableCategories(for: transaction)
+            SplitTransactionSheet(
                 transaction: transaction,
                 availableCategories: availableCategories,
                 onSubmit: { originalTransactionId, splits in
@@ -147,6 +106,24 @@ struct PendingTransactionsReviewView: View {
         .environment(\.layoutDirection, .rightToLeft)
     }
 
+    private var contentView: some View {
+        ZStack(alignment: .top) {
+            Color(UIColor.systemGray5).ignoresSafeArea()
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 20) {
+                    heroSection
+                    if let transaction = currentTransaction {
+                        heroFooter(for: transaction)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .center)
+                .padding(.top, 12)
+                .padding(.horizontal, 20)
+                .padding(.bottom, 32)
+            }
+        }
+    }
+
     @ViewBuilder
     private var heroSection: some View {
         if let transaction = currentTransaction {
@@ -159,8 +136,7 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func heroCardView(_ transaction: Transaction) -> some View {
-        print("📋 [HERO CARD] Displaying transaction id=\\(transaction.id)")
-        return VStack(spacing: 0) {
+        VStack(spacing: 0) {
             VStack(alignment: .trailing, spacing: 10) {
                 HStack {
                     Spacer()
@@ -563,6 +539,24 @@ struct PendingTransactionsReviewView: View {
     private var heroYellowColor: Color {
         Color(red: 241/255, green: 193/255, blue: 26/255)
     }
+    
+    private func prepareAvailableCategories(for transaction: Transaction) -> [String] {
+        let trimmedCategoryNames = viewModel.categories
+            .map { $0.name.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        var uniqueCategories = Set(trimmedCategoryNames)
+        let effectiveCategory = transaction.effectiveCategoryName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if !effectiveCategory.isEmpty {
+            _ = uniqueCategories.insert(effectiveCategory)
+        }
+        var availableCategories = Array(uniqueCategories).sorted()
+        if availableCategories.isEmpty {
+            let fallback = effectiveCategory.isEmpty ? "הוצאות משתנות" : effectiveCategory
+            availableCategories = [fallback]
+        }
+        return availableCategories
+    }
 
     private func categoryLabel(for transaction: Transaction) -> String {
         let trimmedEffective = transaction.effectiveCategoryName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -584,189 +578,4 @@ private struct HeroAction: Identifiable {
     let action: () -> Void
 }
 
-private struct CategorySelectionSheet: View {
-    let transaction: Transaction
-    let categories: [TransactionCategory]
-    var onSelect: (String, String?) -> Void
-    var onSelectForFuture: (String, String?) -> Void
-    var onDelete: () -> Void
-    var onHideBusiness: () -> Void
-    var onSplit: (String, [SplitTransactionEntry]) -> Void
 
-    @State private var selectedCategory: String?
-    @State private var noteText: String = ""
-    @State private var searchText: String = ""
-    @State private var searchTask: Task<Void, Never>? = nil
-    @State private var filteredCategories: [TransactionCategory] = []
-    @Environment(\.dismiss) private var dismiss
-
-    var body: some View {
-        NavigationStack {
-            ScrollView {
-                VStack(alignment: .trailing, spacing: 16) {
-                    Text(transaction.business_name ?? transaction.payment_method ?? "שינוי קטגוריה")
-                        .font(.headline)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-
-                    // Search box
-                    HStack {
-                        TextField("חפש קטגוריה", text: $searchText)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
-                            .onChange(of: searchText) { newValue in
-                                performSearch(search: newValue)
-                            }
-                        Image(systemName: "magnifyingglass")
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.horizontal, 4)
-
-                    if searchText.isEmpty {
-                        // Show all categories when search is empty
-                        LazyVStack(alignment: .trailing, spacing: 12) {
-                            ForEach(categories) { category in
-                                CategoryButtonView(
-                                    category: category,
-                                    isSelected: selectedCategory == category.name,
-                                    onTap: {
-                                        selectedCategory = category.name
-                                    }
-                                )
-                            }
-                        }
-                    } else {
-                        // Show filtered categories when search has text
-                        if filteredCategories.isEmpty {
-                            Text("לא נמצאו תוצאות")
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                .padding(.vertical, 20)
-                        } else {
-                            LazyVStack(alignment: .trailing, spacing: 12) {
-                                ForEach(filteredCategories) { category in
-                                    CategoryButtonView(
-                                        category: category,
-                                        isSelected: selectedCategory == category.name,
-                                        onTap: {
-                                            selectedCategory = category.name
-                                        }
-                                    )
-                                }
-                            }
-                        }
-                    }
-
-                    VStack(alignment: .trailing, spacing: 6) {
-                        Text("הערה (אופציונלי)")
-                            .font(.subheadline.weight(.semibold))
-                        TextEditor(text: $noteText)
-                            .frame(minHeight: 100)
-                            .padding(10)
-                            .background(Color(UIColor.systemGray5))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-
-                    Button("אשר שינוי קטגוריה") {
-                        guard let categoryName = selectedCategory else { return }
-                        dismiss()
-                        onSelect(categoryName, noteValue)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.accentColor)
-                    .disabled(selectedCategory == nil)
-
-                    Button("החיל על כל העסקאות העתידיות") {
-                        guard let categoryName = selectedCategory else { return }
-                        dismiss()
-                        onSelectForFuture(categoryName, noteValue)
-                    }
-                    .disabled(selectedCategory == nil)
-
-                    Divider()
-
-                    Button(role: .destructive) {
-                        dismiss()
-                        onDelete()
-                    } label: {
-                        Text("מחק עסקה")
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.red.opacity(0.12))
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                    }
-
-                    Button("הסר בית עסק") {
-                        dismiss()
-                        onHideBusiness()
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color(UIColor.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                }
-                .padding()
-            }
-            .navigationTitle("החלפת קטגוריה")
-            .onAppear {
-                filteredCategories = categories
-            }
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("בטל") { dismiss() }
-                }
-            }
-        }
-    }
-
-    private func performSearch(search: String) {
-        // Cancel previous search task
-        searchTask?.cancel()
-
-        // Create a new task with a delay
-        searchTask = Task {
-            // Wait for 0.5 seconds of inactivity before performing the search
-            try? await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
-
-            // Perform search on the main thread
-            await MainActor.run {
-                if !Task.isCancelled {
-                    let lowercasedSearch = search.lowercased().trimmingCharacters(in: .whitespacesAndNewlines)
-                    if lowercasedSearch.isEmpty {
-                        filteredCategories = categories
-                    } else {
-                        filteredCategories = categories.filter { category in
-                            category.name.lowercased().contains(lowercasedSearch)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    private var noteValue: String? {
-        let trimmed = noteText.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? nil : trimmed
-    }
-
-    // Subview for category button to keep the code clean
-    private struct CategoryButtonView: View {
-        let category: TransactionCategory
-        let isSelected: Bool
-        let onTap: () -> Void
-
-        var body: some View {
-            Button {
-                onTap()
-            } label: {
-                Text(category.name)
-                    .foregroundColor(isSelected ? .accentColor : .primary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 12, style: .continuous)
-                            .fill(isSelected ? Color.accentColor.opacity(0.15) : Color(UIColor.systemGray5))
-                    )
-            }
-            .buttonStyle(.plain)
-        }
-    }
-}

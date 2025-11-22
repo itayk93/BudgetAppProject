@@ -12,3 +12,4 @@ Secrets/Info.plist
 .env
 BudgetApp/.env
 Secrets/.env
+.env.bak
