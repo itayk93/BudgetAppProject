@@ -166,15 +166,18 @@ struct PendingTransactionsReviewView: View {
                     .font(.system(size: 42, weight: .bold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+            HStack(alignment: .top, spacing: 16) {
                 VStack(alignment: .trailing, spacing: 4) {
                     Text(transaction.business_name ?? transaction.payment_method ?? "עסקה ממתינה")
                         .font(.headline)
                         .foregroundColor(.white.opacity(0.95))
                         .frame(maxWidth: .infinity, alignment: .trailing)
-                    Text(transaction.payment_method ?? "כרטיס • \(transaction.id.suffix(4))")
+                    Text(transaction.payment_method ?? "")
                         .font(.footnote)
                         .foregroundColor(.white.opacity(0.85))
                         .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+                VStack(alignment: .trailing, spacing: 4) {
                     Text(formattedPaymentDate(for: transaction))
                         .font(.caption2)
                         .foregroundColor(.white.opacity(0.75))
@@ -184,6 +187,7 @@ struct PendingTransactionsReviewView: View {
                         .foregroundColor(.white.opacity(0.75))
                         .frame(maxWidth: .infinity, alignment: .trailing)
                 }
+            }
             }
             .padding(.horizontal, 24)
             .padding(.top, 20)
