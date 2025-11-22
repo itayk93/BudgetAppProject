@@ -264,19 +264,30 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func heroActionButton(_ action: HeroAction) -> some View {
-        Button {
-            action.action()
-        } label: {
+        actionCardButton(
+            title: action.title,
+            systemIcon: action.icon,
+            action: action.action
+        )
+    }
+
+    private func actionCardButton(
+        title: String,
+        systemIcon: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
             HStack(spacing: 12) {
-                Text(action.title)
+                Text(title)
                     .font(.body.weight(.semibold))
                     .foregroundColor(.primary)
                 Spacer()
-                Image(systemName: action.icon)
+                Image(systemName: systemIcon)
                     .font(.title3)
                     .foregroundColor(.secondary)
             }
             .padding()
+            .frame(maxWidth: .infinity)
             .background(
                 RoundedRectangle(cornerRadius: 18, style: .continuous)
                     .fill(Color(UIColor.systemGray6))
@@ -304,27 +315,13 @@ struct PendingTransactionsReviewView: View {
     private func heroNoteEditor(for transaction: Transaction) -> some View {
         let trimmed = heroNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
         return VStack(alignment: .trailing, spacing: 10) {
-            Button {
+            actionCardButton(
+                title: heroNoteExpanded ? "סגור הערה" : (trimmed.isEmpty ? "הוסף הערה" : "ערוך הערה"),
+                systemIcon: "square.and.pencil"
+            ) {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     heroNoteExpanded.toggle()
                 }
-            } label: {
-                HStack(spacing: 12) {
-                    Text(heroNoteExpanded ? "סגור הערה" : (trimmed.isEmpty ? "הוסף הערה" : "ערוך הערה"))
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.primary)
-                    Spacer()
-                    Image(systemName: "square.and.pencil")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
-                }
-                .padding()
-                .frame(maxWidth: .infinity)
-                .background(
-                    RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .fill(Color(UIColor.systemGray6))
-                        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
-                )
             }
             if heroNoteExpanded {
                 ZStack(alignment: .topTrailing) {
