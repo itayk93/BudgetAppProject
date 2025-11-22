@@ -42,3 +42,4 @@ To ensure the app can access Supabase data during development, the target reads 
 ### Debugging Access Issues:
 - Check console logs for messages like `🔐 [SUPABASE CREDS] Using key from SERVICE_ROLE`
 - If you see `Using key from ANON`, please verify your credentials in `Secrets/Info.plist`
+# BudgetAppProject
