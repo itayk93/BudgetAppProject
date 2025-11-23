@@ -44,17 +44,18 @@ struct EditTransactionView: View {
 
     var body: some View {
         NavigationView {
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    heroSection
-                    detailsSection
-                    actionButtons
-                    Spacer()
+            ZStack(alignment: .top) {
+                Color(UIColor.systemGray5).ignoresSafeArea()
+
+                ScrollView(showsIndicators: false) {
+                    VStack(spacing: 20) {
+                        heroSection
+                    }
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.top, 12)
+                    .padding(.horizontal, 20)
+                    .padding(.bottom, 32)
                 }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 12)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 32)
             }
             .navigationTitle("עריכת עסקה")
             .navigationBarTitleDisplayMode(.inline)
@@ -137,7 +138,7 @@ struct EditTransactionView: View {
                 // Main amount
                 Text("\(currencySymbol(for: transaction.currency))\(heroAmountText(abs(transaction.normalizedAmount)))")
                     .font(.system(size: 42, weight: .bold))
-                    .foregroundColor(transaction.isIncome ? .green : .red)
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
@@ -155,14 +156,11 @@ struct EditTransactionView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
-                // Payment method
-                if let paymentMethod = transaction.payment_method, !paymentMethod.isEmpty {
-                    Text("אמצעי תשלום: \(paymentMethod)")
-                        .font(.caption2)
-                        .foregroundColor(.white.opacity(0.75))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .multilineTextAlignment(.leading)
-                }
+                Text("חודש תזרים: \(displayedFlowMonth())")
+                    .font(.caption2)
+                    .foregroundColor(.white.opacity(0.75))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             .padding(.horizontal, 24)
@@ -171,85 +169,11 @@ struct EditTransactionView: View {
             .background(heroYellowColor)
 
             // White section with editing fields
-            VStack(spacing: 16) {
-                
-                
-                // Category selection section
-                VStack(alignment: .trailing, spacing: 10) {
-                    actionCardButton(
-                        title: showCategorySelector ? "סגור בחירת קטגוריה" : "להזיז את ההוצאה לקטגוריה אחרת",
-                        systemIcon: "arrowshape.turn.up.right"
-                    ) {
-                        showCategorySelector.toggle()
-                    }
-
-                    if showCategorySelector {
-                        // Category selection interface
-                        VStack(alignment: .trailing, spacing: 8) {
-                            Text("בחר קטגוריה חדשה")
-                                .font(.subheadline.weight(.semibold))
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-
-                            // Searchable category list could go here
-                            // For now, using a TextField to enter category name
-                            TextField("הזן שם קטגוריה", text: $categoryName)
-                                .padding(12)
-                                .background(Color(UIColor.systemGray6))
-                                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                                .multilineTextAlignment(.trailing)
-                        }
-                    } else {
-                        // Show current category when not expanded
-                        HStack {
-                            Text("קטגוריה נוכחית:")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(categoryName.isEmpty ? "לא מוגדרת" : categoryName)
-                                .fontWeight(.medium)
-                        }
-                        .padding(.horizontal, 6)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 6)
-
-                // Notes field with expand/collapse
-                VStack(alignment: .trailing, spacing: 10) {
-                    actionCardButton(
-                        title: noteExpanded ? "סגור הערה" : (notes.isEmpty ? "הוסף הערה" : "ערוך הערה"),
-                        systemIcon: "square.and.pencil"
-                    ) {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                            noteExpanded.toggle()
-                        }
-                    }
-
-                    if noteExpanded {
-                        ZStack(alignment: .topTrailing) {
-                            TextEditor(text: $notes)
-                                .frame(minHeight: 120)
-                                .padding(12)
-                                .background(Color(UIColor.systemGray5).opacity(0.6))
-                                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                                .multilineTextAlignment(.trailing)
-                        }
-                    } else if !notes.isEmpty {
-                        Text(notes)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
-                            .padding(.horizontal, 6)
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.bottom, 18)
-
-                // Flow month changing section
+            VStack(spacing: 12) {
+                notesSection
                 flowMonthSection()
-
-                // Split transaction section
+                categorySection
                 splitTransactionSection
-
-                // Delete transaction section
                 deleteTransactionSection
             }
             .padding(.horizontal, 12)
@@ -259,84 +183,6 @@ struct EditTransactionView: View {
         .background(Color.white)
         .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
         .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 8)
-        .padding(.horizontal, 20)
-    }
-
-    private var detailsSection: some View {
-        VStack(alignment: .trailing, spacing: 16) {
-            GroupBox("פרטי העסקה") {
-                VStack(alignment: .trailing, spacing: 12) {
-                    // Transaction date
-                    HStack {
-                        Text("תאריך:")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(formattedPaymentDate(for: transaction))
-                            .fontWeight(.medium)
-                    }
-                    
-                    // Payment method
-                    if let paymentMethod = transaction.payment_method, !paymentMethod.isEmpty {
-                        HStack {
-                            Text("אמצעי תשלום:")
-                                .foregroundColor(.secondary)
-                            Spacer()
-                            Text(paymentMethod)
-                                .fontWeight(.medium)
-                        }
-                    }
-                    
-                    // Currency
-                    HStack {
-                        Text("валוטה:")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(transaction.currency ?? "ILS")
-                            .fontWeight(.medium)
-                    }
-
-                    // Status
-                    HStack {
-                        Text("סטטוס:")
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        Text(transaction.status ?? "نشط")
-                            .fontWeight(.medium)
-                    }
-                }
-            }
-        }
-        .padding(.horizontal, 20)
-    }
-
-    private var actionButtons: some View {
-        VStack(spacing: 16) {
-            Button {
-                saveTransaction()
-            } label: {
-                HStack {
-                    if isSaving {
-                        ProgressView()
-                            .progressViewStyle(.circular)
-                    }
-                    Text(isSaving ? "שומר..." : "שמור עסקה")
-                        .font(.body.weight(.semibold))
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                }
-                .background(Color.accentColor)
-                .foregroundColor(.white)
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            }
-            .disabled(isSaving)
-            
-            Button("בטל", action: onCancel)
-                .font(.body.weight(.semibold))
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color(UIColor.systemGray5))
-                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
         .padding(.horizontal, 20)
     }
 
@@ -404,6 +250,95 @@ struct EditTransactionView: View {
         return formatter.currencySymbol ?? "₪"
     }
 
+    private var categorySection: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            actionCardButton(
+                title: showCategorySelector ? "סגור בחירת קטגוריה" : "להזיז את ההוצאה",
+                systemIcon: "arrowshape.turn.up.right"
+            ) {
+                showCategorySelector.toggle()
+            }
+
+            if showCategorySelector {
+                VStack(alignment: .trailing, spacing: 8) {
+                    Text("בחר קטגוריה חדשה")
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+
+                    TextField("הזן שם קטגוריה", text: $categoryName)
+                        .padding(12)
+                        .background(Color(UIColor.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .multilineTextAlignment(.trailing)
+
+                    Button {
+                        saveTransaction()
+                    } label: {
+                        HStack {
+                            if isSaving {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                            }
+                            Text(isSaving ? "שומר..." : "שמור קטגוריה")
+                                .font(.body.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding()
+                        .background(Color.accentColor.opacity(0.18))
+                        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    }
+                    .disabled(isSaving)
+                }
+            }
+        }
+    }
+
+    private var notesSection: some View {
+        VStack(alignment: .trailing, spacing: 10) {
+            actionCardButton(
+                title: noteExpanded ? "סגור הערה" : (notes.isEmpty ? "הוסף הערה" : "ערוך הערה"),
+                systemIcon: "square.and.pencil"
+            ) {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    noteExpanded.toggle()
+                }
+            }
+
+            if noteExpanded {
+                ZStack(alignment: .topTrailing) {
+                    TextEditor(text: $notes)
+                        .frame(minHeight: 120)
+                        .padding(12)
+                        .background(Color(UIColor.systemGray5).opacity(0.6))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .multilineTextAlignment(.trailing)
+                }
+                Button {
+                    saveTransaction()
+                } label: {
+                    HStack {
+                        if isSaving {
+                            ProgressView()
+                                .progressViewStyle(.circular)
+                        }
+                        Text(isSaving ? "שומר..." : "שמור הערה")
+                            .font(.body.weight(.semibold))
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.accentColor.opacity(0.18))
+                    .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                }
+                .disabled(isSaving)
+            } else if !notes.isEmpty {
+                Text(notes)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.horizontal, 6)
+            }
+        }
+    }
+
     private var heroYellowColor: Color {
         Color(red: 241/255, green: 193/255, blue: 26/255)
     }
@@ -460,23 +395,22 @@ struct EditTransactionView: View {
                 HStack(spacing: 12) {
                     Text("למחוק את העסקה")
                         .font(.body.weight(.semibold))
-                        .foregroundColor(.red)
+                        .foregroundColor(.primary)
                     Spacer()
                     Image(systemName: "trash")
                         .font(.title3)
-                        .foregroundColor(.red)
+                        .foregroundColor(.secondary)
                 }
                 .padding()
                 .frame(maxWidth: .infinity)
                 .background(
                     RoundedRectangle(cornerRadius: 18, style: .continuous)
-                        .stroke(Color.red.opacity(0.3), lineWidth: 1)
+                        .fill(Color(UIColor.systemGray6))
+                        .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
                 )
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     private var splitTransactionSection: some View {
@@ -488,8 +422,6 @@ struct EditTransactionView: View {
                 showSplitTransaction = true
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     private func flowMonthSection() -> some View {
@@ -573,8 +505,6 @@ struct EditTransactionView: View {
                 )
             }
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 6)
     }
 
     private func actionCardButton(
@@ -601,6 +531,13 @@ struct EditTransactionView: View {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    private func displayedFlowMonth() -> String {
+        if moveFlowMonthExpanded && isValidFlowMonth(moveFlowMonthText) {
+            return moveFlowMonthText
+        }
+        return flowMonth.isEmpty ? resolvedFlowMonth(for: transaction) : flowMonth
     }
 
     private func resolvedFlowMonth(for transaction: Transaction) -> String {
@@ -652,6 +589,7 @@ struct EditTransactionView: View {
             moveFlowMonthExpanded = false
         }
 
+        saveTransaction()
         isMovingFlowMonth = false
     }
 
