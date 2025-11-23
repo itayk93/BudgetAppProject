@@ -9,21 +9,8 @@ struct TransactionMenuView: View {
     let onViewDetails: (Transaction) -> Void
 
     var body: some View {
-        Menu {
-            Button("פרטים") {
-                onViewDetails(transaction)
-            }
-            Button("לערוך") {
-                onEdit(transaction)
-            }
-            Button("למחוק") {
-                onDelete(transaction)
-            }
-            if transaction.status == "pending" {
-                Button("לאשר") {
-                    onApprove(transaction)
-                }
-            }
+        Button {
+            onEdit(transaction)
         } label: {
             Image(systemName: "ellipsis")
                 .foregroundColor(.secondary)
@@ -32,5 +19,7 @@ struct TransactionMenuView: View {
                 .padding(.vertical, 12)
                 .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel("ערוך עסקה")
     }
 }
