@@ -52,6 +52,21 @@ public final class TransactionsService {
         }
     }
 
+    func delete(transactionID: String) async throws {
+        let url = baseURL.appendingPathComponent("transactions/\(transactionID)")
+        var req = URLRequest(url: url)
+        req.httpMethod = "DELETE"
+        req.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let token = KeychainStore.get("auth.token") {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+
+        let (_, resp) = try await session.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APIError(message: "Failed to delete transaction \(transactionID)")
+        }
+    }
+
     // Refactored to use individual parameters instead of struct to avoid memory corruption
     func splitTransaction(
         originalTransactionId: String,

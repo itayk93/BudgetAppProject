@@ -151,12 +151,12 @@ struct CashflowCardsView: View {
                         }
                     },
                     onDelete: { transactionToDelete in
-                        // Handle transaction deletion
-                        // Use the PendingTransactionsReviewViewModel to delete the transaction
+                        transactionToEdit = nil
                         Task {
-                            // If it's a pending transaction, use the appropriate service
                             if transactionToDelete.status == "pending" {
                                 await pendingTxsVm.delete(transactionToDelete)
+                            } else {
+                                await vm.deleteTransaction(transactionToDelete)
                             }
                             await vm.refreshData()
                             await pendingTxsVm.refresh()
@@ -1348,12 +1348,21 @@ struct CashflowCardsView: View {
         let filter: TransactionFilter
         let currencySymbol: String
         @State private var searchText: String = ""
+        @State private var debouncedSearchText: String = ""
+        @State private var debounceWorkItem: DispatchWorkItem?
 
         var body: some View {
             NavigationStack {
                 List {
-                    Section(header: Text("תוצאות (\(results.count))")) {
-                        if results.isEmpty {
+                    Section(header: Text(sectionHeader)) {
+                        if !hasQuery {
+                            Text("התחל להקליד כדי לחפש עסקאות")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                            Text("נחכה חצי שנייה מרגע סיום ההקלדה לפני שנציג תוצאות.")
+                                .font(.caption2)
+                                .foregroundColor(.secondary)
+                        } else if results.isEmpty {
                             Text("לא נמצאו עסקאות")
                                 .font(.footnote)
                         }
@@ -1365,6 +1374,17 @@ struct CashflowCardsView: View {
                 .listStyle(.insetGrouped)
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
                 .navigationTitle("חיפוש עסקאות")
+                .onChange(of: searchText) { newValue in
+                    debounceWorkItem?.cancel()
+                    let workItem = DispatchWorkItem {
+                        debouncedSearchText = newValue
+                    }
+                    debounceWorkItem = workItem
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: workItem)
+                }
+                .onDisappear {
+                    debounceWorkItem?.cancel()
+                }
                 .toolbar {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("סגור") { dismiss() }
@@ -1373,15 +1393,26 @@ struct CashflowCardsView: View {
             }
         }
 
+        private var hasQuery: Bool {
+            !trimmedQuery.isEmpty
+        }
+
+        private var trimmedQuery: String {
+            debouncedSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        private var sectionHeader: String {
+            hasQuery ? "תוצאות (\(results.count))" : "התחל חיפוש"
+        }
+
         private var results: [Transaction] {
+            guard hasQuery else { return [] }
             vm.transactions
-                .filter { filter.matches($0, accountName: $0.accountDisplayName) && matchesSearchText($0) }
+                .filter { filter.matches($0, accountName: $0.accountDisplayName) && matchesSearchText($0, query: trimmedQuery) }
                 .sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
         }
 
-        private func matchesSearchText(_ transaction: Transaction) -> Bool {
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { return true }
+        private func matchesSearchText(_ transaction: Transaction, query: String) -> Bool {
             let lower = query.lowercased()
             if transaction.business_name?.lowercased().contains(lower) == true { return true }
             if transaction.effectiveCategoryName.lowercased().contains(lower) { return true }
