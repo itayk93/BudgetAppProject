@@ -25,7 +25,12 @@ struct TransactionMenuView: View {
                 }
             }
         } label: {
-            Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
+            Image(systemName: "ellipsis")
+                .foregroundColor(.secondary)
+                .frame(width: 24, height: 24, alignment: .center)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 12)
+                .contentShape(Rectangle())
         }
     }
 }
