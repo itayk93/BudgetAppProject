@@ -59,13 +59,6 @@ struct EditTransactionView: View {
             }
             .navigationTitle("עריכת עסקה")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("ביטול") {
-                        onCancel()
-                    }
-                }
-            }
             .sheet(isPresented: $showSplitTransaction) {
                 // Prepare available categories for the split transaction
                 let availableCategories = prepareAvailableCategories()
@@ -111,7 +104,7 @@ struct EditTransactionView: View {
         VStack(spacing: 0) {
             // Yellow header section
             VStack(alignment: .leading, spacing: 8) {
-                // Close button - visually on top-right in RTL
+                // Close button - visually on top-left regardless of RTL
                 HStack {
                     Button {
                         onCancel()
@@ -125,7 +118,8 @@ struct EditTransactionView: View {
                     }
                     Spacer()
                 }
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .environment(\.layoutDirection, .leftToRight)
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 // Category label
                 Text(transaction.effectiveCategoryName)
