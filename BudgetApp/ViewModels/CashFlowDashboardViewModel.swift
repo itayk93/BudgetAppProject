@@ -223,7 +223,6 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private var categoryOrderService: CategoryOrderService
     private var monthlyGoalsService: MonthlyGoalsService
     private var emptyCategoriesService: EmptyCategoriesService
-    private var transactionsService: TransactionsService
 
     /// name -> config (display order, shared mapping, weekly flag, etc.)
     private var categoryOrderMap: [String: CategoryOrder] = [:]
@@ -249,7 +248,6 @@ final class CashFlowDashboardViewModel: ObservableObject {
         self.categoryOrderService = CategoryOrderService(apiClient: apiClient)
         self.monthlyGoalsService = MonthlyGoalsService(apiClient: apiClient)
         self.emptyCategoriesService = EmptyCategoriesService(apiClient: apiClient)
-        self.transactionsService = TransactionsService(baseURL: AppConfig.baseURL)
     }
 
     // MARK: - Public API
@@ -573,10 +571,36 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     func deleteTransaction(_ transaction: Transaction) async {
         do {
-            try await transactionsService.delete(transactionID: transaction.id)
+            let path = "transactions/\(transaction.id)"
+            _ = try await apiClient.send(
+                path,
+                method: "DELETE",
+                query: nil,
+                body: Optional<Data>.none
+            ) as AppEmptyResponse
+        } catch let directError {
+            // Fallback to explicit /delete endpoint if needed by backend
+            struct DeleteBody: Encodable { let transaction_id: String }
+            do {
+                _ = try await apiClient.send(
+                    "transactions/\(transaction.id)/delete",
+                    method: "POST",
+                    query: nil,
+                    body: DeleteBody(transaction_id: transaction.id)
+                ) as AppEmptyResponse
+            } catch {
+                print("❌ [DELETE TX] Failed deleting \(transaction.id): \(directError) / fallback: \(error)")
+                errorMessage = error.localizedDescription
+                return
+            }
         } catch {
             errorMessage = error.localizedDescription
+            return
         }
+
+        transactions.removeAll { $0.id == transaction.id }
+        pendingTransactions.removeAll { $0.id == transaction.id }
+        await refreshData()
     }
 
     // Exposed helpers used by view

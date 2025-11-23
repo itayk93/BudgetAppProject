@@ -117,7 +117,12 @@ struct CashflowCardsView: View {
                 }
             }
             .sheet(isPresented: $showingSearchSheet) {
-                TransactionSearchSheet(filter: transactionFilter, currencySymbol: currentCurrencySymbol)
+                TransactionSearchSheet(
+                    filter: transactionFilter,
+                    currencySymbol: currentCurrencySymbol
+                ) { selected in
+                    transactionToEdit = selected
+                }
                     .environmentObject(vm)
             }
             .sheet(isPresented: $showingFilterSheet) {
@@ -155,10 +160,10 @@ struct CashflowCardsView: View {
                         Task {
                             if transactionToDelete.status == "pending" {
                                 await pendingTxsVm.delete(transactionToDelete)
+                                await vm.refreshData()
                             } else {
                                 await vm.deleteTransaction(transactionToDelete)
                             }
-                            await vm.refreshData()
                             await pendingTxsVm.refresh()
                         }
                     },
@@ -1347,34 +1352,47 @@ struct CashflowCardsView: View {
         @Environment(\.dismiss) private var dismiss
         let filter: TransactionFilter
         let currencySymbol: String
+        let onSelect: (Transaction) -> Void
         @State private var searchText: String = ""
         @State private var debouncedSearchText: String = ""
         @State private var debounceWorkItem: DispatchWorkItem?
 
         var body: some View {
             NavigationStack {
-                List {
-                    Section(header: Text(sectionHeader)) {
-                        if !hasQuery {
-                            Text("התחל להקליד כדי לחפש עסקאות")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                            Text("נחכה חצי שנייה מרגע סיום ההקלדה לפני שנציג תוצאות.")
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        } else if results.isEmpty {
-                            Text("לא נמצאו עסקאות")
-                                .font(.footnote)
-                        }
-                        ForEach(results, id: \.id) { tx in
-                            TransactionSearchRow(transaction: tx, currencySymbol: currencySymbol)
+                VStack(spacing: 0) {
+                    headerBar
+                    List {
+                        Section(header:
+                            Text(sectionHeader)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                        ) {
+                            if !hasQuery {
+                                Text("התחל להקליד כדי לחפש עסקאות")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            } else if results.isEmpty {
+                                Text("לא נמצאו עסקאות")
+                                    .font(.footnote)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                            }
+                            ForEach(results, id: \.id) { tx in
+                                Button {
+                                    onSelect(tx)
+                                    dismiss()
+                                } label: {
+                                    TransactionSearchRow(transaction: tx, currencySymbol: currencySymbol)
+                                }
+                                .buttonStyle(.plain)
+                            }
                         }
                     }
+                    .listStyle(.insetGrouped)
+                    .environment(\.layoutDirection, .rightToLeft)
                 }
-                .listStyle(.insetGrouped)
-                .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
                 .navigationTitle("חיפוש עסקאות")
-                .onChange(of: searchText) { newValue in
+                .navigationBarTitleDisplayMode(.inline)
+                .onChange(of: searchText) { _, newValue in
                     debounceWorkItem?.cancel()
                     let workItem = DispatchWorkItem {
                         debouncedSearchText = newValue
@@ -1385,12 +1403,62 @@ struct CashflowCardsView: View {
                 .onDisappear {
                     debounceWorkItem?.cancel()
                 }
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("סגור") { dismiss() }
+            }
+            .environment(\.layoutDirection, .rightToLeft)
+            .contentShape(Rectangle())
+            .simultaneousGesture(TapGesture().onEnded { dismissKeyboard() })
+        }
+
+        private var headerBar: some View {
+            HStack(spacing: 12) {
+                Button {
+                    dismiss()
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.body.weight(.bold))
+                        .foregroundColor(.primary)
+                        .padding(10)
+                        .background(Color(UIColor.systemGray5))
+                        .clipShape(Circle())
+                }
+
+                Spacer()
+
+                searchField
+            }
+            .padding(.horizontal)
+            .padding(.vertical, 10)
+            .background(Color(UIColor.systemGroupedBackground))
+            .environment(\.layoutDirection, .leftToRight)
+        }
+
+        private var searchField: some View {
+            ZStack {
+                RoundedRectangle(cornerRadius: 14, style: .continuous)
+                    .fill(Color(UIColor.systemGray6))
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundColor(.secondary)
+                    TextField("חפש עסקאות...", text: $searchText)
+                        .textInputAutocapitalization(.never)
+                        .disableAutocorrection(true)
+                        .multilineTextAlignment(.trailing)
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                            debouncedSearchText = ""
+                            dismissKeyboard()
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundColor(.secondary)
+                        }
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 10)
             }
+            .frame(height: 44)
+            .environment(\.layoutDirection, .rightToLeft)
         }
 
         private var hasQuery: Bool {
@@ -1407,7 +1475,7 @@ struct CashflowCardsView: View {
 
         private var results: [Transaction] {
             guard hasQuery else { return [] }
-            vm.transactions
+            return vm.transactions
                 .filter { filter.matches($0, accountName: $0.accountDisplayName) && matchesSearchText($0, query: trimmedQuery) }
                 .sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
         }
@@ -1429,33 +1497,55 @@ struct CashflowCardsView: View {
             return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
         }
 
-        private struct TransactionSearchRow: View {
+            private struct TransactionSearchRow: View {
             let transaction: Transaction
             let currencySymbol: String
 
             var body: some View {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(transaction.business_name?.isEmpty == false ? transaction.business_name! : transaction.effectiveCategoryName)
-                            .font(.body)
-                        HStack(spacing: 6) {
-                            Text(transaction.effectiveCategoryName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(transaction.accountDisplayName)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
+                HStack(alignment: .center, spacing: 12) {
+                    Spacer()
+                    detailsView
+                    amountView
+                }
+                .environment(\.layoutDirection, .rightToLeft)
+            }
+
+            private var amountView: some View {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(formatAmount())
+                        .font(.headline)
+                        .monospacedDigit()
+                    Text(currencySymbol)
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+            }
+
+            private var detailsView: some View {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(transaction.business_name?.isEmpty == false ? transaction.business_name! : transaction.effectiveCategoryName)
+                        .font(.body)
+                    HStack(spacing: 6) {
+                        Text(transaction.effectiveCategoryName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(transaction.accountDisplayName)
+                            .font(.caption2)
+                            .foregroundColor(.secondary)
+                    }
+                    HStack(spacing: 8) {
+                        if let flowBadge = flowMonthLabel() {
+                            Text(flowBadge)
+                                .font(.caption2.weight(.semibold))
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(Color.blue.opacity(0.12))
+                                .foregroundColor(.blue)
+                                .clipShape(Capsule())
                         }
                         Text(dateString(transaction.parsedDate))
                             .font(.caption2)
                             .foregroundColor(.secondary)
-                    }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(formatAmount())
-                            .font(.headline)
-                            .monospacedDigit()
-                        Text(currencySymbol).font(.caption2).foregroundColor(.secondary)
                     }
                 }
             }
@@ -1476,6 +1566,17 @@ struct CashflowCardsView: View {
             formatter.dateFormat = "d.M.yy"
             return formatter.string(from: date)
         }
+
+        private func flowMonthLabel() -> String? {
+            guard let flowMonthKey = transaction.flowMonthKey else { return nil }
+            return "תזרים \(flowMonthKey)"
+        }
+    }
+
+    private func dismissKeyboard() {
+#if canImport(UIKit)
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+#endif
     }
     }
 
