@@ -121,12 +121,62 @@ final class CashFlowDashboardViewModel: ObservableObject {
         }
     }
 
+    enum MutationStatus: Equatable {
+        case idle
+        case working(String?)
+        case success(Date)
+        case failed(String)
+    }
+
+    struct RefreshDiagnostics: Equatable {
+        var totalDuration: TimeInterval = 0
+        var networkDuration: TimeInterval = 0
+        var cardBuildDuration: TimeInterval = 0
+        var chartBuildDuration: TimeInterval = 0
+        var lastUpdated: Date?
+        var usedCache: Bool = false
+    }
+
+    struct TransactionDiff {
+        enum Change {
+            case removal(Transaction)
+            case insertion(Transaction)
+            case update(old: Transaction, new: Transaction)
+        }
+
+        let changes: [Change]
+    }
+
     // MARK: - Published state used by views
 
-    @Published var selectedCashFlow: CashFlow?
+    @Published var selectedCashFlow: CashFlow? {
+        didSet {
+            guard oldValue?.id != selectedCashFlow?.id else { return }
+            if let old = oldValue {
+                let scope = CashFlowTransactionStore.ScopeKey(cashFlowID: old.id, baseURL: apiClient.baseURL)
+                transactionStore.reset(scope: scope)
+            }
+            lastMonthlyGoals = []
+            lastEmptyCategories = []
+            lastEmptyCategoriesMonthKey = nil
+            lastGoalsRange = nil
+            chartMonthKeys = []
+            cardsLoadError = nil
+            chartsLoadError = nil
+            isCachingTransactions = false
+            lastCardsServedFromCache = false
+            lastChartsServedFromCache = false
+            clearAll()
+        }
+    }
     @Published var cashFlows: [CashFlow] = []
 
-    @Published var timeRange: TimeRange = .months6
+    @Published var timeRange: TimeRange = .months6 {
+        didSet {
+            guard oldValue != timeRange else { return }
+            Task { await refreshChartsOnly() }
+        }
+    }
     @Published var currentMonthDate: Date = Date()  // drives cards screen header
 
     @Published var loading: Bool = false
@@ -149,6 +199,14 @@ final class CashFlowDashboardViewModel: ObservableObject {
     // New: Pending transactions
     @Published var pendingTransactions: [Transaction] = []
     @Published var monthlyTargetGoal: Double?
+
+    @Published var refreshDiagnostics: RefreshDiagnostics = RefreshDiagnostics()
+    @Published var isCachingTransactions: Bool = false
+    @Published var isLoadingCurrentMonth: Bool = false
+    @Published var isLoadingCharts: Bool = false
+    @Published var cardsLoadError: String?
+    @Published var chartsLoadError: String?
+    @Published var lastMutation: MutationStatus = .idle
     
     struct AccountSnapshot: Identifiable, Hashable {
         let id: String
@@ -223,6 +281,21 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private var categoryOrderService: CategoryOrderService
     private var monthlyGoalsService: MonthlyGoalsService
     private var emptyCategoriesService: EmptyCategoriesService
+    private let transactionStore = CashFlowTransactionStore()
+
+    private var lastMonthlyGoals: [MonthlyGoal] = []
+    private var lastEmptyCategories: [UserEmptyCategoryDisplay] = []
+    private var lastEmptyCategoriesMonthKey: String?
+    private var lastGoalsRange: DateInterval?
+    private var chartMonthKeys: [String] = []
+    private var lastCardsServedFromCache: Bool = false
+    private var lastChartsServedFromCache: Bool = false
+
+    private struct PartialLoadMetrics {
+        var networkDuration: TimeInterval = 0
+        var buildDuration: TimeInterval = 0
+        var servedFromCache: Bool = false
+    }
 
     /// name -> config (display order, shared mapping, weekly flag, etc.)
     private var categoryOrderMap: [String: CategoryOrder] = [:]
@@ -233,6 +306,44 @@ final class CashFlowDashboardViewModel: ObservableObject {
         let y = cal.component(.year, from: currentMonthDate)
         let m = cal.component(.month, from: currentMonthDate)
         return String(format: "%04d-%02d", y, m)
+    }
+
+    private var currentScope: CashFlowTransactionStore.ScopeKey? {
+        guard let cf = selectedCashFlow else { return nil }
+        return CashFlowTransactionStore.ScopeKey(cashFlowID: cf.id, baseURL: apiClient.baseURL)
+    }
+
+    private func monthInterval(for date: Date) -> DateInterval {
+        let cal = Calendar(identifier: .gregorian)
+        guard let start = cal.date(from: cal.dateComponents([.year, .month], from: date)) else {
+            return DateInterval(start: date, duration: 0)
+        }
+        var comps = DateComponents()
+        comps.month = 1
+        let end = cal.date(byAdding: comps, to: start)?.addingTimeInterval(-1) ?? date
+        return DateInterval(start: start, end: end)
+    }
+
+    private func monthKeys(in interval: DateInterval) -> [String] {
+        var keys: [String] = []
+        let cal = Calendar(identifier: .gregorian)
+        var cursor = cal.date(from: cal.dateComponents([.year, .month], from: interval.start)) ?? interval.start
+
+        while cursor <= interval.end {
+            let comps = cal.dateComponents([.year, .month], from: cursor)
+            if let year = comps.year, let month = comps.month {
+                keys.append(String(format: "%04d-%02d", year, month))
+            }
+            cursor = cal.date(byAdding: .month, value: 1, to: cursor) ?? interval.end.addingTimeInterval(1)
+        }
+
+        return keys
+    }
+
+    private func combinedMonthKeys() -> [String] {
+        var keys = Set(chartMonthKeys)
+        keys.insert(currentMonthKey)
+        return Array(keys)
     }
 
     private func isTransactionInCurrentMonth(_ transaction: Transaction) -> Bool {
@@ -313,111 +424,274 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
         loading = true
         errorMessage = nil
-        defer { loading = false }
+
+        let refreshStart = Date()
+        var cardsMetrics = PartialLoadMetrics()
+        var chartsMetrics = PartialLoadMetrics()
+
+        await withTaskGroup(of: (String, PartialLoadMetrics).self) { group in
+            group.addTask { [weak self] in
+                guard let self else { return ("cards", PartialLoadMetrics()) }
+                let metrics = await self.loadCurrentMonthOnly(for: cf)
+                return ("cards", metrics)
+            }
+            group.addTask { [weak self] in
+                guard let self else { return ("charts", PartialLoadMetrics()) }
+                let metrics = await self.loadChartsOnly(for: cf)
+                return ("charts", metrics)
+            }
+
+            for await (label, metrics) in group {
+                if label == "cards" {
+                    cardsMetrics = metrics
+                } else {
+                    chartsMetrics = metrics
+                }
+            }
+        }
+
+        let totalDuration = Date().timeIntervalSince(refreshStart)
+        refreshDiagnostics = RefreshDiagnostics(
+            totalDuration: totalDuration,
+            networkDuration: cardsMetrics.networkDuration + chartsMetrics.networkDuration,
+            cardBuildDuration: cardsMetrics.buildDuration,
+            chartBuildDuration: chartsMetrics.buildDuration,
+            lastUpdated: Date(),
+            usedCache: cardsMetrics.servedFromCache && chartsMetrics.servedFromCache
+        )
+        lastCardsServedFromCache = cardsMetrics.servedFromCache
+        lastChartsServedFromCache = chartsMetrics.servedFromCache
+        isCachingTransactions = lastCardsServedFromCache && lastChartsServedFromCache
+        loading = false
+    }
+
+    func refreshCardsOnly() async {
+        guard let cf = selectedCashFlow else { return }
+        let metrics = await loadCurrentMonthOnly(for: cf)
+        lastCardsServedFromCache = metrics.servedFromCache
+        if !loading {
+            isCachingTransactions = lastCardsServedFromCache && lastChartsServedFromCache
+        }
+    }
+
+    func refreshChartsOnly() async {
+        guard let cf = selectedCashFlow else { return }
+        let metrics = await loadChartsOnly(for: cf)
+        lastChartsServedFromCache = metrics.servedFromCache
+        if !loading {
+            isCachingTransactions = lastCardsServedFromCache && lastChartsServedFromCache
+        }
+    }
+
+    private func loadCurrentMonthOnly(for cashFlow: CashFlow) async -> PartialLoadMetrics {
+        var metrics = PartialLoadMetrics()
+        guard let scope = currentScope else { return metrics }
+
+        cardsLoadError = nil
+        isLoadingCurrentMonth = true
+        defer { isLoadingCurrentMonth = false }
+
+        let interval = monthInterval(for: currentMonthDate)
+        metrics.servedFromCache = transactionStore.hasMonths(scope: scope, monthKeys: [currentMonthKey])
 
         do {
-            // Calculate date range that always includes currentMonthDate
-            // Expand by 1 month on each side to catch transactions with payment_date
-            // outside the month but flow_month within it (e.g., payment_date in Sept but flow_month = Oct)
-            let cal = Calendar(identifier: .gregorian)
-            let selectedMonthStart = cal.date(from: cal.dateComponents([.year, .month], from: currentMonthDate))!
-
-            // Start with a range that includes the selected month with buffer
-            var startDate = cal.date(byAdding: .month, value: -1, to: selectedMonthStart)!
-            var endDate = cal.date(byAdding: .month, value: 2, to: selectedMonthStart)!
-            endDate = cal.date(byAdding: .day, value: -1, to: endDate)!
-
-            // Also include the timeRange window for charts, but prioritize selected month
-            let (chartStart, chartEnd) = dateRange(for: timeRange)
-            if chartStart < startDate {
-                startDate = chartStart
+            if !metrics.servedFromCache {
+                let (txs, duration) = try await fetchTransactions(
+                    cashFlowID: cashFlow.id,
+                    startDate: interval.start,
+                    endDate: interval.end,
+                    perPage: 750
+                )
+                metrics.networkDuration = duration
+                transactionStore.cache(txs, scope: scope)
             }
-            if chartEnd > endDate {
-                endDate = chartEnd
-            }
+            transactionStore.mark(scope: scope, monthKeys: [currentMonthKey])
 
-            // Build query for transactions over a range
-            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-            let items: [URLQueryItem] = [
-                URLQueryItem(name: "cash_flow_id", value: cf.id),
-                URLQueryItem(name: "show_all", value: "true"),
-                URLQueryItem(name: "per_page", value: "5000"),
-                URLQueryItem(name: "start_date", value: f.string(from: startDate)),
-                URLQueryItem(name: "end_date", value: f.string(from: endDate))
-            ]
-
-            // Create copies for concurrent access to avoid Swift 6 capture issues
-            let startDateCopy = startDate
-            let endDateCopy = endDate
-
-            // Parallel fetch: transactions (must succeed) + optional supporting services
-            async let txs: [Transaction] = apiClient.fetchTransactionsFlexible(query: items)
-            async let goalsMaybe: [MonthlyGoal]? = try? monthlyGoalsService.getMonthlyGoals(
-                cashFlowId: cf.id, startDate: startDateCopy, endDate: endDateCopy
-            )
-            async let emptyMaybe: [UserEmptyCategoryDisplay]? = try? emptyCategoriesService.getEmptyCategories(
-                cashFlowId: cf.id, startDate: startDateCopy, endDate: endDateCopy
-            )
-            async let pendingTxs: [Transaction] = apiClient.fetchPendingTransactions(
-                cashFlowID: cf.id, startDate: startDateCopy, endDate: endDateCopy
+            let emptyCategories = try await fetchEmptyCategoriesIfNeeded(
+                cashFlow: cashFlow,
+                startDate: interval.start,
+                endDate: interval.end
             )
 
-            let transactionsAll = try await txs
-            let monthlyGoals = await goalsMaybe ?? []
-            let emptyCategories = await emptyMaybe ?? []
-            self.pendingTransactions = try await pendingTxs
+            let buildStart = Date()
+            rebuildTransactionsSnapshot(scope: scope)
+            buildCardsForCurrentMonth(all: transactions, emptyCategories: emptyCategories)
+            metrics.buildDuration = Date().timeIntervalSince(buildStart)
 
-
-            // Update global store
-            transactions = transactionsAll
-
-            // Compute income/expense totals over the period, excluding non-cashflow
-            let flowTx = transactionsAll.filter { !isExcluded($0) }
-            totalIncome = flowTx.reduce(0) { total, tx in
-                if tx.isIncome {
-                    return total + max(0, tx.normalizedAmount)
-                } else if tx.normalizedAmount > 0 {
-                    return total + tx.normalizedAmount
-                }
-                return total
-            }
-            totalExpenses = flowTx.reduce(0) { total, tx in
-                if tx.normalizedAmount < 0 {
-                    return total + abs(tx.normalizedAmount)
-                }
-                return total
-            }
-
-            // Build charts across the whole window
-            buildCharts(txs: transactionsAll, goals: monthlyGoals, emptyCategories: emptyCategories)
-
-            // Build single-month cards (currentMonthDate)
-            buildCardsForCurrentMonth(all: transactionsAll, emptyCategories: emptyCategories)
-
+            pendingTransactions = try await apiClient.fetchPendingTransactions(
+                cashFlowID: cashFlow.id,
+                startDate: interval.start,
+                endDate: interval.end
+            )
         } catch {
-            // Keep a friendly error and clear UI so the user can retry
-            AppLogger.log("Decoding error in refreshData: \(error)")
-            if let decodingError = error as? DecodingError {
-                switch decodingError {
-                case .dataCorrupted(let context):
-                    AppLogger.log("Data corrupted: \(context.debugDescription)")
-                    AppLogger.log("Coding path: \(context.codingPath)")
-                case .keyNotFound(let key, let context):
-                    AppLogger.log("Key '\(key.stringValue)' not found: \(context.debugDescription)")
-                    AppLogger.log("Coding path: \(context.codingPath)")
-                case .valueNotFound(let type, let context):
-                    AppLogger.log("Value of type '\(type)' not found: \(context.debugDescription)")
-                    AppLogger.log("Coding path: \(context.codingPath)")
-                case .typeMismatch(let type, let context):
-                    AppLogger.log("Type mismatch for type '\(type)': \(context.debugDescription)")
-                    AppLogger.log("Coding path: \(context.codingPath)")
-                @unknown default:
-                    AppLogger.log("Unknown decoding error: \(decodingError.localizedDescription)")
-                }
-            }
-            errorMessage = "Failed to refresh data: \(error.localizedDescription)"
-            clearAll()
+            cardsLoadError = error.localizedDescription
+            AppLogger.log("❌ [CARDS LOAD] \(error)", force: true)
         }
+
+        AppLogger.log(
+            "⏱️ [CARDS LOAD] network=\(String(format: "%.2f", metrics.networkDuration)) build=\(String(format: "%.2f", metrics.buildDuration)) cache=\(metrics.servedFromCache)",
+            force: true
+        )
+        return metrics
+    }
+
+    private func loadChartsOnly(for cashFlow: CashFlow) async -> PartialLoadMetrics {
+        var metrics = PartialLoadMetrics()
+        guard let scope = currentScope else { return metrics }
+
+        chartsLoadError = nil
+        isLoadingCharts = true
+        defer { isLoadingCharts = false }
+
+        let (start, end) = dateRange(for: timeRange)
+        let interval = DateInterval(start: start, end: end)
+        let requestedMonthKeys = monthKeys(in: interval)
+        chartMonthKeys = requestedMonthKeys
+        metrics.servedFromCache = transactionStore.hasMonths(scope: scope, monthKeys: requestedMonthKeys)
+
+        do {
+            if !metrics.servedFromCache {
+                let perPage = max(250, min(5000, requestedMonthKeys.count * 300))
+                let (txs, duration) = try await fetchTransactions(
+                    cashFlowID: cashFlow.id,
+                    startDate: interval.start,
+                    endDate: interval.end,
+                    perPage: perPage
+                )
+                metrics.networkDuration = duration
+                transactionStore.cache(txs, scope: scope)
+            }
+            transactionStore.mark(scope: scope, monthKeys: requestedMonthKeys)
+
+            let goals = try await fetchMonthlyGoalsIfNeeded(cashFlow: cashFlow, interval: interval)
+
+            let buildStart = Date()
+            let chartTransactions = transactionStore.collect(scope: scope, monthKeys: requestedMonthKeys)
+            buildCharts(txs: chartTransactions, goals: goals, emptyCategories: lastEmptyCategories)
+            rebuildTransactionsSnapshot(scope: scope)
+            metrics.buildDuration = Date().timeIntervalSince(buildStart)
+        } catch {
+            chartsLoadError = error.localizedDescription
+            AppLogger.log("❌ [CHARTS LOAD] \(error)", force: true)
+        }
+
+        AppLogger.log(
+            "⏱️ [CHARTS LOAD] network=\(String(format: "%.2f", metrics.networkDuration)) build=\(String(format: "%.2f", metrics.buildDuration)) cache=\(metrics.servedFromCache)",
+            force: true
+        )
+        return metrics
+    }
+
+    private func fetchTransactions(
+        cashFlowID: String,
+        startDate: Date,
+        endDate: Date,
+        perPage: Int
+    ) async throws -> ([Transaction], TimeInterval) {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "cash_flow_id", value: cashFlowID),
+            URLQueryItem(name: "show_all", value: "true"),
+            URLQueryItem(name: "per_page", value: String(perPage)),
+            URLQueryItem(name: "start_date", value: formatter.string(from: startDate)),
+            URLQueryItem(name: "end_date", value: formatter.string(from: endDate))
+        ]
+        query.append(URLQueryItem(name: "sort", value: "payment_date"))
+
+        let networkStart = Date()
+        let txs = try await apiClient.fetchTransactionsFlexible(query: query)
+        let duration = Date().timeIntervalSince(networkStart)
+        AppLogger.log(
+            "📦 [FETCH TX] cashFlow=\(cashFlowID) count=\(txs.count) per_page=\(perPage) duration=\(String(format: "%.2f", duration))s",
+            force: true
+        )
+        return (txs, duration)
+    }
+
+    private func fetchEmptyCategoriesIfNeeded(
+        cashFlow: CashFlow,
+        startDate: Date,
+        endDate: Date
+    ) async throws -> [UserEmptyCategoryDisplay] {
+        if lastEmptyCategoriesMonthKey == currentMonthKey, !lastEmptyCategories.isEmpty {
+            return lastEmptyCategories
+        }
+        let categories = try await emptyCategoriesService.getEmptyCategories(
+            cashFlowId: cashFlow.id,
+            startDate: startDate,
+            endDate: endDate
+        )
+        lastEmptyCategories = categories
+        lastEmptyCategoriesMonthKey = currentMonthKey
+        return categories
+    }
+
+    private func fetchMonthlyGoalsIfNeeded(
+        cashFlow: CashFlow,
+        interval: DateInterval
+    ) async throws -> [MonthlyGoal] {
+        if let last = lastGoalsRange,
+           abs(last.start.timeIntervalSince(interval.start)) < 1,
+           abs(last.end.timeIntervalSince(interval.end)) < 1 {
+            return lastMonthlyGoals
+        }
+        let goals = try await monthlyGoalsService.getMonthlyGoals(
+            cashFlowId: cashFlow.id,
+            startDate: interval.start,
+            endDate: interval.end
+        )
+        lastMonthlyGoals = goals
+        lastGoalsRange = interval
+        return goals
+    }
+
+    private func rebuildTransactionsSnapshot(scope: CashFlowTransactionStore.ScopeKey) {
+        let keys = combinedMonthKeys()
+        let snapshot = transactionStore.collect(scope: scope, monthKeys: keys)
+        transactions = snapshot
+        updateTotals(with: snapshot)
+    }
+
+    private func updateTotals(with txs: [Transaction]) {
+        let flowTx = txs.filter { !isExcluded($0) }
+        totalIncome = flowTx.reduce(0) { total, tx in
+            if tx.isIncome {
+                return total + max(0, tx.normalizedAmount)
+            } else if tx.normalizedAmount > 0 {
+                return total + tx.normalizedAmount
+            }
+            return total
+        }
+        totalExpenses = flowTx.reduce(0) { total, tx in
+            if tx.normalizedAmount < 0 {
+                return total + abs(tx.normalizedAmount)
+            }
+            return total
+        }
+    }
+
+    func mutateState(using diff: TransactionDiff) {
+        guard let scope = currentScope else { return }
+
+        for change in diff.changes {
+            switch change {
+            case .removal(let tx):
+                transactionStore.remove(tx, scope: scope)
+                pendingTransactions.removeAll { $0.id == tx.id }
+            case .insertion(let tx):
+                transactionStore.upsert(tx, scope: scope)
+            case .update(let old, let newValue):
+                transactionStore.remove(old, scope: scope)
+                transactionStore.upsert(newValue, scope: scope)
+            }
+        }
+
+        rebuildTransactionsSnapshot(scope: scope)
+        let chartKeys = chartMonthKeys.isEmpty ? combinedMonthKeys() : chartMonthKeys
+        let chartTransactions = transactionStore.collect(scope: scope, monthKeys: chartKeys)
+        buildCharts(txs: chartTransactions, goals: lastMonthlyGoals, emptyCategories: lastEmptyCategories)
+        buildCardsForCurrentMonth(all: transactions, emptyCategories: lastEmptyCategories)
     }
 
     func saveMonthlyBudget(for categoryName: String, amount: Double) async {
@@ -475,14 +749,14 @@ final class CashFlowDashboardViewModel: ObservableObject {
     func previousMonth() {
         if let d = Calendar.current.date(byAdding: .month, value: -1, to: currentMonthDate) {
             currentMonthDate = d
-            Task { await refreshData() }
+            Task { await refreshCardsOnly() }
         }
     }
 
     func nextMonth() {
         if let d = Calendar.current.date(byAdding: .month, value: 1, to: currentMonthDate) {
             currentMonthDate = d
-            Task { await refreshData() }
+            Task { await refreshCardsOnly() }
         }
     }
 
@@ -570,6 +844,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
     }
 
     func deleteTransaction(_ transaction: Transaction) async {
+        lastMutation = .working("מוחק עסקה...")
         do {
             let path = "transactions/\(transaction.id)"
             _ = try await apiClient.send(
@@ -591,16 +866,17 @@ final class CashFlowDashboardViewModel: ObservableObject {
             } catch {
                 AppLogger.log("❌ [DELETE TX] Failed deleting \(transaction.id): \(directError) / fallback: \(error)", force: true)
                 errorMessage = error.localizedDescription
+                lastMutation = .failed(error.localizedDescription)
                 return
             }
         } catch {
             errorMessage = error.localizedDescription
+            lastMutation = .failed(error.localizedDescription)
             return
         }
 
-        transactions.removeAll { $0.id == transaction.id }
-        pendingTransactions.removeAll { $0.id == transaction.id }
-        await refreshData()
+        mutateState(using: TransactionDiff(changes: [.removal(transaction)]))
+        lastMutation = .success(Date())
         AppLogger.log("✅ [DELETE TX] Transaction \(transaction.id) deleted successfully", force: true)
     }
 
@@ -1060,6 +1336,15 @@ final class CashFlowDashboardViewModel: ObservableObject {
         savingsTransactions = []; savingsTotal = 0; savingsExpected = 0
         excludedIncome = []; excludedExpense = []; excludedIncomeTotal = 0; excludedExpenseTotal = 0
         sharedGroups = [:]
+        pendingTransactions = []
+        refreshDiagnostics = RefreshDiagnostics()
+        cardsLoadError = nil
+        chartsLoadError = nil
+        isLoadingCurrentMonth = false
+        isLoadingCharts = false
+        isCachingTransactions = false
+        lastCardsServedFromCache = false
+        lastChartsServedFromCache = false
     }
 
     private func dateRange(for range: TimeRange) -> (start: Date, end: Date) {

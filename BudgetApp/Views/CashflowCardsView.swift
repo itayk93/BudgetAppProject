@@ -1,6 +1,7 @@
 // BudgetApp/Views/CashflowCardsView.swift
 
 import SwiftUI
+import Combine
 
 private let weeklyGridLineColor = Color.white.opacity(0.22)
 private let weeklyGridBackgroundColor = Color.white.opacity(0.04)
@@ -48,12 +49,16 @@ struct CashflowCardsView: View {
                     header
                     content
                 }
-                
-                if !vm.loading && vm.errorMessage == nil {
+                if vm.errorMessage == nil && (!vm.loading || !vm.transactions.isEmpty) {
                     FloatingActionButton(count: pendingTxsVm.transactions.count) {
                         showingPendingTransactionsSheet = true
                     }
                     .padding()
+                }
+                if shouldShowMonthlyOverlay {
+                    MonthlyLoadingOverlay(title: monthName(vm.currentMonthDate))
+                        .transition(.opacity.combined(with: .scale))
+                        .zIndex(3)
                 }
             }
             .navigationTitle("תזרים מזומנים")
@@ -268,7 +273,7 @@ struct CashflowCardsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if vm.loading {
+        if vm.loading && vm.transactions.isEmpty {
             ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let err = vm.errorMessage {
             VStack(spacing: 10) {
@@ -280,35 +285,60 @@ struct CashflowCardsView: View {
         } else {
             ScrollView {
                 VStack(spacing: 16) {
-                    WeeklyBudgetCard(
-                        info: weeklyBudgetInfo,
-                        currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
-                        format: formatNumber,
-                        onAccountStatusTap: { showingAccountStatusSheet = true }
-                    )
-                    MonthlyTargetCard(
-                        target: monthlyGoalValue,
-                        actual: vm.monthlyTotals.net,
-                        currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
-                        format: formatNumber,
-                        onEdit: {
-                            monthlyTargetEditingValue = monthlyGoalValue
-                            showingMonthlyTargetSheet = true
-                        },
-                        onPlanAhead: {
-                            showingPlanAheadSheet = true
+                    loadStatusPanel
+                    mutationStatusView
+                    if vm.isLoadingCurrentMonth && vm.orderedItems.isEmpty {
+                        placeholderCard(height: 140)
+                    } else {
+                        WeeklyBudgetCard(
+                            info: weeklyBudgetInfo,
+                            currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
+                            format: formatNumber,
+                            onAccountStatusTap: { showingAccountStatusSheet = true }
+                        )
+                    }
+                    if vm.isLoadingCurrentMonth && vm.orderedItems.isEmpty {
+                        placeholderCard(height: 140)
+                    } else {
+                        MonthlyTargetCard(
+                            target: monthlyGoalValue,
+                            actual: vm.monthlyTotals.net,
+                            currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
+                            format: formatNumber,
+                            onEdit: {
+                                monthlyTargetEditingValue = monthlyGoalValue
+                                showingMonthlyTargetSheet = true
+                            },
+                            onPlanAhead: {
+                                showingPlanAheadSheet = true
+                            }
+                        )
+                    }
+                    if vm.monthlyLabels.isEmpty && vm.isLoadingCharts {
+                        placeholderCard(height: 220)
+                    } else {
+                        MonthlyTrendCard(
+                            labels: vm.monthlyLabels,
+                            netSeries: vm.netSeries,
+                            expenseSeries: vm.expensesSeries,
+                            incomeSeries: vm.incomeSeries,
+                            currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS")
+                        )
+                        .overlay(alignment: .topLeading) {
+                            if vm.isLoadingCharts {
+                                ProgressView().padding().tint(.white)
+                            }
                         }
-                    )
-                    MonthlyTrendCard(
-                        labels: vm.monthlyLabels,
-                        netSeries: vm.netSeries,
-                        expenseSeries: vm.expensesSeries,
-                        incomeSeries: vm.incomeSeries,
-                        currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS")
-                    )
+                    }
                     summaryCard
-                    ForEach(vm.orderedItems, id: \.id) { item in
-                        itemView(for: item)
+                    if vm.orderedItems.isEmpty && vm.isLoadingCurrentMonth {
+                        ForEach(0..<3, id: \.self) { _ in
+                            placeholderCard(height: 160)
+                        }
+                    } else {
+                        ForEach(vm.orderedItems, id: \.id) { item in
+                            itemView(for: item)
+                        }
                     }
                     biometricToggleSection
                 }
@@ -368,6 +398,215 @@ struct CashflowCardsView: View {
                     transactionToShowDetails = transaction
                 }
             )
+        }
+    }
+
+    @ViewBuilder
+    private var loadStatusPanel: some View {
+        if shouldShowStatusPanel {
+            VStack(alignment: .trailing, spacing: 8) {
+                if vm.isCachingTransactions {
+                    statusCapsule(icon: "bolt.horizontal.circle", text: "הנתונים הוצגו מהמטמון")
+                }
+                if vm.isLoadingCurrentMonth && vm.orderedItems.isEmpty {
+                    statusCapsule(icon: "rectangle.stack.person.crop", text: "טוען כרטיסים לחודש הנוכחי...")
+                } else if let cardsError = vm.cardsLoadError {
+                    partialErrorRow(
+                        title: "טעינת הכרטיסים נכשלה",
+                        detail: cardsError,
+                        actionTitle: "רענון כרטיסים"
+                    ) {
+                        Task { await vm.refreshCardsOnly() }
+                    }
+                }
+                if vm.isLoadingCharts && vm.monthlyLabels.isEmpty {
+                    statusCapsule(icon: "chart.line.uptrend.xyaxis", text: "טוען גרפים (\(vm.timeRange.rawValue))...")
+                } else if let chartsError = vm.chartsLoadError {
+                    partialErrorRow(
+                        title: "טעינת הגרפים נכשלה",
+                        detail: chartsError,
+                        actionTitle: "רענון גרפים"
+                    ) {
+                        Task { await vm.refreshChartsOnly() }
+                    }
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .trailing)
+        }
+    }
+
+    private var shouldShowStatusPanel: Bool {
+        vm.isCachingTransactions ||
+        (vm.isLoadingCurrentMonth && vm.orderedItems.isEmpty) ||
+        vm.cardsLoadError != nil ||
+        (vm.isLoadingCharts && vm.monthlyLabels.isEmpty) ||
+        vm.chartsLoadError != nil
+    }
+
+    private var shouldShowMonthlyOverlay: Bool {
+        vm.isLoadingCurrentMonth &&
+        vm.errorMessage == nil &&
+        vm.orderedItems.isEmpty &&
+        vm.cardsLoadError == nil
+    }
+
+    @ViewBuilder
+    private var mutationStatusView: some View {
+        switch vm.lastMutation {
+        case .working(let message):
+            mutationRow(
+                icon: "arrow.triangle.2.circlepath",
+                color: .orange,
+                text: message ?? "מעדכן נתונים..."
+            )
+        case .failed(let message):
+            mutationRow(
+                icon: "xmark.octagon.fill",
+                color: .red,
+                text: message ?? "הפעולה נכשלה"
+            )
+        case .success(let date):
+            mutationRow(
+                icon: "checkmark.circle.fill",
+                color: .green,
+                text: "הנתונים עודכנו \(relativeTimeString(since: date))"
+            )
+        default:
+            EmptyView()
+        }
+    }
+
+    private func mutationRow(icon: String, color: Color, text: String) -> some View {
+        HStack {
+            Spacer()
+            Label(text, systemImage: icon)
+                .font(.footnote)
+                .padding(10)
+                .background(RoundedRectangle(cornerRadius: 14).fill(color.opacity(0.15)))
+                .foregroundColor(color)
+        }
+    }
+
+    private func statusCapsule(icon: String, text: String) -> some View {
+        Label(text, systemImage: icon)
+            .font(.footnote)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Capsule().fill(Color.white.opacity(0.12)))
+            .foregroundColor(.white)
+    }
+
+    private func partialErrorRow(
+        title: String,
+        detail: String,
+        actionTitle: String,
+        action: @escaping () -> Void
+    ) -> some View {
+        VStack(alignment: .trailing, spacing: 4) {
+            Text(title)
+                .font(.subheadline)
+                .fontWeight(.semibold)
+            Text(detail)
+                .font(.footnote)
+                .foregroundColor(Theme.muted)
+                .lineLimit(2)
+            Button(actionTitle) { action() }
+                .buttonStyle(.borderedProminent)
+                .tint(Theme.primary)
+        }
+        .padding()
+        .background(RoundedRectangle(cornerRadius: 20).fill(Color.white.opacity(0.05)))
+    }
+
+    private func placeholderCard(height: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: 24)
+            .fill(Color.white.opacity(0.05))
+            .frame(height: height)
+            .overlay(
+                ProgressView()
+                    .tint(.white)
+            )
+    }
+
+    private func relativeTimeString(since date: Date) -> String {
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = Locale(identifier: "he_IL")
+        return formatter.localizedString(for: date, relativeTo: Date())
+    }
+
+    private struct MonthlyLoadingOverlay: View {
+        let title: String
+        @State private var gradientPhase: CGFloat = -0.6
+        @State private var dotPhase: Int = 0
+        private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
+
+        var body: some View {
+            ZStack {
+                Color.black.opacity(0.55).ignoresSafeArea()
+                VStack(spacing: 18) {
+                    Text("טוען את \(title)")
+                        .font(.title3.weight(.semibold))
+                    Text("אנחנו מביאים את כל הנתונים של החודש הזה...")
+                        .font(.footnote)
+                        .multilineTextAlignment(.center)
+                        .foregroundColor(.white.opacity(0.85))
+                        .padding(.horizontal)
+                    ProgressView()
+                        .progressViewStyle(.circular)
+                        .tint(.white)
+                    animatedBar
+                        .frame(height: 14)
+                        .padding(.horizontal, 24)
+                    HStack(spacing: 6) {
+                        ForEach(0..<3) { index in
+                            Circle()
+                                .fill(Color.white.opacity(dotPhase == index ? 1 : 0.35))
+                                .frame(width: 10, height: 10)
+                        }
+                    }
+                    .onReceive(timer) { _ in
+                        dotPhase = (dotPhase + 1) % 3
+                    }
+                }
+                .padding(30)
+                .background(
+                    RoundedRectangle(cornerRadius: 32)
+                        .fill(.ultraThinMaterial)
+                        .shadow(color: .black.opacity(0.3), radius: 25, x: 0, y: 10)
+                )
+                .padding(.horizontal, 32)
+            }
+            .onAppear {
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: false)) {
+                    gradientPhase = 1.2
+                }
+            }
+        }
+
+        private var animatedBar: some View {
+            GeometryReader { geo in
+                let width = geo.size.width
+                let activeWidth = width * 0.4
+                ZStack(alignment: .leading) {
+                    Capsule()
+                        .fill(Color.white.opacity(0.2))
+                    Capsule()
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    Color.white.opacity(0.1),
+                                    Color.white,
+                                    Color.white.opacity(0.1)
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                        )
+                        .frame(width: activeWidth)
+                        .offset(x: gradientPhase * (width - activeWidth))
+                        .animation(.linear(duration: 1.4).repeatForever(autoreverses: false), value: gradientPhase)
+                }
+            }
         }
     }
 
