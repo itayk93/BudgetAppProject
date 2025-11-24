@@ -91,17 +91,12 @@ struct ReviewedTransactionsSearchView: View {
                     .font(.caption2)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .trailing)
-                Text("""
-                    select * from bank_scraper_pending_transactions
-                    where status = 'reviewed'
-                      and business_name ilike '%\(trimmed)%'
-                    """)
-                    .font(.system(size: 12, weight: .medium, design: .monospaced))
-                    .lineSpacing(4)
+                Text(trimmed)
+                    .font(.subheadline)
                     .foregroundColor(.primary)
                     .multilineTextAlignment(.trailing)
-                    .padding(10)
                     .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(10)
                     .background(
                         RoundedRectangle(cornerRadius: 12)
                             .strokeBorder(Color(UIColor.systemGray4), lineWidth: 0.8)
