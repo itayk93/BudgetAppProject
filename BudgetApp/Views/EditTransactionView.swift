@@ -99,7 +99,15 @@ struct EditTransactionView: View {
         }
         .environment(\.layoutDirection, .rightToLeft)
         .onAppear {
-            AppLogger.log("✏️ Entered EditTransactionView for tx \(transaction.id)", force: true)
+            AppLogger.log(
+                "✏️ Entered EditTransactionView for tx \(transaction.id) (status: \(transaction.status ?? "nil"))",
+                force: true
+            )
+        }
+        .onChange(of: vm.errorMessage) { newValue in
+            if let newValue {
+                AppLogger.log("⚠️ VM error message: \(newValue)", force: true)
+            }
         }
     }
 
