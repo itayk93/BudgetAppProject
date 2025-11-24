@@ -23,6 +23,7 @@ struct PendingTransactionsReviewView: View {
 
     var body: some View {
         contentView
+            .dismissKeyboardOnTap()
             .navigationTitle("אישור עסקאות")
             .navigationBarTitleDisplayMode(.inline)
             .task {
