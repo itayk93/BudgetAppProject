@@ -98,6 +98,9 @@ struct EditTransactionView: View {
             }
         }
         .environment(\.layoutDirection, .rightToLeft)
+        .onAppear {
+            AppLogger.log("✏️ Entered EditTransactionView for tx \(transaction.id)", force: true)
+        }
     }
 
     private var heroSection: some View {
@@ -384,6 +387,7 @@ struct EditTransactionView: View {
     private var deleteTransactionSection: some View {
         VStack(alignment: .trailing, spacing: 10) {
             Button(action: {
+                AppLogger.log("🗑️ Delete button tapped for tx \(transaction.id)", force: true)
                 showDeleteConfirmation = true
             }) {
                 HStack(spacing: 12) {
@@ -588,6 +592,7 @@ struct EditTransactionView: View {
     }
 
     private func deleteTransaction() {
+        AppLogger.log("⚠️ Confirmation accepted; deleting tx \(transaction.id)", force: true)
         // Call the onDelete callback to handle the deletion
         onDelete(transaction)
     }

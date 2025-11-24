@@ -589,7 +589,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                     body: DeleteBody(transaction_id: transaction.id)
                 ) as AppEmptyResponse
             } catch {
-                AppLogger.log("❌ [DELETE TX] Failed deleting \(transaction.id): \(directError) / fallback: \(error)")
+                AppLogger.log("❌ [DELETE TX] Failed deleting \(transaction.id): \(directError) / fallback: \(error)", force: true)
                 errorMessage = error.localizedDescription
                 return
             }
