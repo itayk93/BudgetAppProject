@@ -56,7 +56,11 @@ struct CashflowCardsView: View {
                     .padding()
                 }
                 if shouldShowMonthlyOverlay {
-                    MonthlyLoadingOverlay(title: monthName(vm.currentMonthDate))
+                    MonthlyLoadingOverlay(
+                        title: monthName(vm.currentMonthDate),
+                        showChartsProgress: vm.isLoadingCharts || vm.monthlyLabels.isEmpty,
+                        showCardsProgress: vm.isLoadingCurrentMonth || vm.orderedItems.isEmpty
+                    )
                         .transition(.opacity.combined(with: .scale))
                         .zIndex(3)
                 }
@@ -443,11 +447,17 @@ struct CashflowCardsView: View {
         vm.chartsLoadError != nil
     }
 
+    private var isDashboardReady: Bool {
+        !vm.orderedItems.isEmpty &&
+        !vm.monthlyLabels.isEmpty &&
+        vm.cardsLoadError == nil &&
+        vm.chartsLoadError == nil
+    }
+
     private var shouldShowMonthlyOverlay: Bool {
-        vm.isLoadingCurrentMonth &&
-        vm.errorMessage == nil &&
-        vm.orderedItems.isEmpty &&
-        vm.cardsLoadError == nil
+        let cardsBusy = vm.isLoadingCurrentMonth || vm.orderedItems.isEmpty
+        let chartsBusy = vm.isLoadingCharts || vm.monthlyLabels.isEmpty
+        return (!isDashboardReady || cardsBusy || chartsBusy) && vm.errorMessage == nil
     }
 
     @ViewBuilder
@@ -536,6 +546,8 @@ struct CashflowCardsView: View {
 
     private struct MonthlyLoadingOverlay: View {
         let title: String
+        let showChartsProgress: Bool
+        let showCardsProgress: Bool
         private let accent = Color(red: 0.23, green: 0.62, blue: 0.94)
         @State private var gradientPhase: CGFloat = 0
         @State private var dotPhase: Int = 0
@@ -547,7 +559,7 @@ struct CashflowCardsView: View {
                 VStack(spacing: 18) {
                     Text("טוען את \(title)")
                         .font(.title3.weight(.semibold))
-                    Text("אנחנו מביאים את כל הנתונים של החודש הזה...")
+                    Text(statusDescription)
                         .font(.footnote)
                         .multilineTextAlignment(.center)
                         .foregroundColor(.white.opacity(0.85))
@@ -572,7 +584,16 @@ struct CashflowCardsView: View {
                 .padding(30)
                 .background(
                     RoundedRectangle(cornerRadius: 32)
-                        .fill(.ultraThinMaterial)
+                        .fill(
+                            LinearGradient(
+                                colors: [
+                                    accent.opacity(0.25),
+                                    accent.opacity(0.18)
+                                ],
+                                startPoint: .top,
+                                endPoint: .bottom
+                            )
+                        )
                         .shadow(color: .black.opacity(0.3), radius: 25, x: 0, y: 10)
                 )
                 .padding(.horizontal, 32)
@@ -591,7 +612,7 @@ struct CashflowCardsView: View {
                 let activeWidth = width * 0.4
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(accent.opacity(0.15))
+                        .fill(accent.opacity(0.25))
                     Capsule()
                         .fill(
                             LinearGradient(
@@ -608,6 +629,19 @@ struct CashflowCardsView: View {
                         .offset(x: gradientPhase * max(1, width - activeWidth))
                         .animation(.linear(duration: 1.4).repeatForever(autoreverses: false), value: gradientPhase)
                 }
+            }
+        }
+
+        private var statusDescription: String {
+            switch (showCardsProgress, showChartsProgress) {
+            case (true, true):
+                return "אנחנו מסדרים גם את הכרטיסים וגם את הגרפים..."
+            case (true, false):
+                return "מסיימים לסדר את כרטיסי החודש..."
+            case (false, true):
+                return "מעדכנים את הגרפים של התקופה..."
+            default:
+                return "מעדכנים את הנתונים..."
             }
         }
     }
