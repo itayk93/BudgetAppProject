@@ -55,15 +55,6 @@ struct CashflowCardsView: View {
                     }
                     .padding()
                 }
-                if shouldShowMonthlyOverlay {
-                    MonthlyLoadingOverlay(
-                        title: monthName(vm.currentMonthDate),
-                        showChartsProgress: vm.isLoadingCharts || vm.monthlyLabels.isEmpty,
-                        showCardsProgress: vm.isLoadingCurrentMonth || vm.orderedItems.isEmpty
-                    )
-                        .transition(.opacity.combined(with: .scale))
-                        .zIndex(3)
-                }
             }
             .navigationTitle("תזרים מזומנים")
 #if os(iOS)
@@ -277,15 +268,24 @@ struct CashflowCardsView: View {
 
     @ViewBuilder
     private var content: some View {
-        if vm.loading && vm.transactions.isEmpty {
-            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if let err = vm.errorMessage {
+        if let err = vm.errorMessage {
             VStack(spacing: 10) {
                 Text("שגיאה").font(.headline)
                 Text(err)
                 Button("נסה שוב") { Task { await vm.refreshData() } }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else if !isDashboardReady {
+            Color.clear
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .overlay {
+                    MonthlyLoadingOverlay(
+                        title: monthName(vm.currentMonthDate),
+                        showChartsProgress: vm.isLoadingCharts || vm.monthlyLabels.isEmpty,
+                        showCardsProgress: vm.isLoadingCurrentMonth || vm.orderedItems.isEmpty
+                    )
+                    .padding(.bottom, 48)
+                }
         } else {
             ScrollView {
                 VStack(spacing: 16) {
@@ -452,12 +452,6 @@ struct CashflowCardsView: View {
         !vm.monthlyLabels.isEmpty &&
         vm.cardsLoadError == nil &&
         vm.chartsLoadError == nil
-    }
-
-    private var shouldShowMonthlyOverlay: Bool {
-        let cardsBusy = vm.isLoadingCurrentMonth || vm.orderedItems.isEmpty
-        let chartsBusy = vm.isLoadingCharts || vm.monthlyLabels.isEmpty
-        return (!isDashboardReady || cardsBusy || chartsBusy) && vm.errorMessage == nil
     }
 
     @ViewBuilder
