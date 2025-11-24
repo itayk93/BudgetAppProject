@@ -536,7 +536,8 @@ struct CashflowCardsView: View {
 
     private struct MonthlyLoadingOverlay: View {
         let title: String
-        @State private var gradientPhase: CGFloat = -0.6
+        private let accent = Color(red: 0.23, green: 0.62, blue: 0.94)
+        @State private var gradientPhase: CGFloat = 0
         @State private var dotPhase: Int = 0
         private let timer = Timer.publish(every: 0.5, on: .main, in: .common).autoconnect()
 
@@ -553,14 +554,14 @@ struct CashflowCardsView: View {
                         .padding(.horizontal)
                     ProgressView()
                         .progressViewStyle(.circular)
-                        .tint(.white)
+                        .tint(accent)
                     animatedBar
                         .frame(height: 14)
                         .padding(.horizontal, 24)
                     HStack(spacing: 6) {
                         ForEach(0..<3) { index in
                             Circle()
-                                .fill(Color.white.opacity(dotPhase == index ? 1 : 0.35))
+                                .fill(accent.opacity(dotPhase == index ? 1 : 0.35))
                                 .frame(width: 10, height: 10)
                         }
                     }
@@ -577,8 +578,9 @@ struct CashflowCardsView: View {
                 .padding(.horizontal, 32)
             }
             .onAppear {
+                gradientPhase = 0
                 withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: false)) {
-                    gradientPhase = 1.2
+                    gradientPhase = 1
                 }
             }
         }
@@ -589,21 +591,21 @@ struct CashflowCardsView: View {
                 let activeWidth = width * 0.4
                 ZStack(alignment: .leading) {
                     Capsule()
-                        .fill(Color.white.opacity(0.2))
+                        .fill(accent.opacity(0.15))
                     Capsule()
                         .fill(
                             LinearGradient(
                                 colors: [
-                                    Color.white.opacity(0.1),
-                                    Color.white,
-                                    Color.white.opacity(0.1)
+                                    accent.opacity(0.2),
+                                    accent,
+                                    accent.opacity(0.2)
                                 ],
                                 startPoint: .leading,
                                 endPoint: .trailing
                             )
                         )
                         .frame(width: activeWidth)
-                        .offset(x: gradientPhase * (width - activeWidth))
+                        .offset(x: gradientPhase * max(1, width - activeWidth))
                         .animation(.linear(duration: 1.4).repeatForever(autoreverses: false), value: gradientPhase)
                 }
             }
