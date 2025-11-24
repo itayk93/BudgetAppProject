@@ -30,9 +30,9 @@ final class AuthViewModel: ObservableObject {
             do {
                 let user = try await auth.getCurrentUser()
                 currentUser = user
-                print("✅ Session verified for user: \(user.username)")
+                AppLogger.log("✅ Session verified for user: \(user.username)")
             } catch {
-                print("⚠️ Failed to get current user: \(error)")
+                AppLogger.log("⚠️ Failed to get current user: \(error)")
             }
         } else {
             currentUser = nil
@@ -50,7 +50,7 @@ final class AuthViewModel: ObservableObject {
             isAuthenticated = true
             // Persist userId and log for debugging
             UserDefaults.standard.set(user.id, forKey: "auth.userId")
-            print("✅ User \(user.username) logged in successfully with ID: \(user.id)")
+            AppLogger.log("✅ User \(user.username) logged in successfully with ID: \(user.id)")
         } catch {
             errorMessage = (error as? APIError)?.message ?? error.localizedDescription
         }
@@ -73,7 +73,7 @@ final class AuthViewModel: ObservableObject {
             isAuthenticated = true
             // Persist userId and log for debugging
             UserDefaults.standard.set(user.id, forKey: "auth.userId")
-            print("✅ User \(user.username) registered and logged in successfully with ID: \(user.id)")
+            AppLogger.log("✅ User \(user.username) registered and logged in successfully with ID: \(user.id)")
         } catch {
             errorMessage = (error as? APIError)?.message ?? error.localizedDescription
         }
@@ -87,7 +87,7 @@ final class AuthViewModel: ObservableObject {
         // Clear persisted user data
         UserDefaults.standard.removeObject(forKey: "auth.userId")
         UserDefaults.standard.removeObject(forKey: "app.selectedCashFlowId")
-        print("✅ User logged out successfully")
+        AppLogger.log("✅ User logged out successfully")
     }
 
     // Retrieve stored userId

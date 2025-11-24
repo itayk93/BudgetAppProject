@@ -295,7 +295,7 @@ struct SplitTransactionSheet: View {
 
                 Button {
                     // Add debug logging before submitting
-                    print("🔍 [SPLIT DEBUG] Submit button pressed - about to call submitSplit()")
+                    AppLogger.log("🔍 [SPLIT DEBUG] Submit button pressed - about to call submitSplit()")
                     submitSplit()
                 } label: {
                     Text(isSubmitting ? "מפצל..." : "פצל עסקה")
@@ -404,14 +404,14 @@ struct SplitTransactionSheet: View {
     }
 
     private func logSplitSummary(id: String, splits: [SplitTransactionEntry]) {
-        print("🔍 [SPLIT DEBUG] ======================================")
-        print("🔍 [SPLIT DEBUG] READY TO SUBMIT SPLIT")
-        print("🔍 [SPLIT DEBUG] original_transaction_id:", id)
-        print("🔍 [SPLIT DEBUG] splits count:", splits.count)
+        AppLogger.log("🔍 [SPLIT DEBUG] ======================================")
+        AppLogger.log("🔍 [SPLIT DEBUG] READY TO SUBMIT SPLIT")
+        AppLogger.log("🔍 [SPLIT DEBUG] original_transaction_id:", id)
+        AppLogger.log("🔍 [SPLIT DEBUG] splits count:", splits.count)
         for (index, entry) in splits.enumerated() {
-            print("    ↳ Split #", index, "amount=", entry.amount, "category=", entry.category, "flow_month=", entry.flowMonth)
+            AppLogger.log("    ↳ Split #", index, "amount=", entry.amount, "category=", entry.category, "flow_month=", entry.flowMonth)
         }
-        print("🔍 [SPLIT DEBUG] ======================================")
+        AppLogger.log("🔍 [SPLIT DEBUG] ======================================")
     }
 
     private func performSplitSubmission(id: String, splits: [SplitTransactionEntry]) {
@@ -422,9 +422,9 @@ struct SplitTransactionSheet: View {
         let safeId = String(id)
         let safeSplits = Array(splits)
 
-        print("🔍 [SPLIT DEBUG] Calling onSubmit closure...")
+        AppLogger.log("🔍 [SPLIT DEBUG] Calling onSubmit closure...")
         onSubmit(safeId, safeSplits)
-        print("✅ [SPLIT DEBUG] onSubmit closure completed successfully")
+        AppLogger.log("✅ [SPLIT DEBUG] onSubmit closure completed successfully")
         isSubmitting = false
         onSuccess?()
         dismiss()

@@ -26,11 +26,11 @@ struct PendingTransactionsReviewView: View {
             .navigationTitle("אישור עסקאות")
             .navigationBarTitleDisplayMode(.inline)
             .task {
-                print("📱 [DEBUG] PendingTransactionsReviewView appeared, refreshing")
+                AppLogger.log("📱 [DEBUG] PendingTransactionsReviewView appeared, refreshing")
                 await viewModel.refresh()
             }
             .refreshable {
-                print("📱 [DEBUG] Pull to refresh triggered")
+                AppLogger.log("📱 [DEBUG] Pull to refresh triggered")
                 await viewModel.refresh()
             }
             .sheet(item: $pendingCategoryChange) { transaction in
@@ -243,23 +243,15 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func heroDragGesture(for transaction: Transaction) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.25)
-            .sequenced(before: DragGesture(minimumDistance: 0))
+        DragGesture(minimumDistance: 10)
             .onChanged { value in
-                print("📱 [DEBUG] Drag gesture changed: \(value)")
-                if case .second(true, let drag?) = value {
-                    dragOffset = CGSize(width: drag.translation.width, height: 0)
+                let clamped = min(0, value.translation.width) // Only allow swiping left
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    dragOffset = CGSize(width: clamped, height: 0)
                 }
             }
             .onEnded { value in
-                print("📱 [DEBUG] Drag gesture ended: \(value)")
-                if case .second(true, let drag?) = value {
-                    handleDragEnd(translationX: drag.translation.width, transaction: transaction)
-                } else {
-                    withAnimation(.spring()) {
-                        dragOffset = .zero
-                    }
-                }
+                handleDragEnd(translationX: value.translation.width, transaction: transaction)
             }
     }
 
@@ -300,7 +292,7 @@ struct PendingTransactionsReviewView: View {
     private func heroActions(for transaction: Transaction) -> [HeroAction] {
         [
             HeroAction(id: "move", icon: "arrowshape.turn.up.right", title: "להזיז את ההוצאה") {
-                print("🔄 [HERO ACTION] Move tapped for tx=\(transaction.id)")
+                AppLogger.log("🔄 [HERO ACTION] Move tapped for tx=\(transaction.id)")
                 pendingCategoryChange = transaction
             },
             HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
@@ -636,16 +628,11 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func handleDragEnd(translationX: CGFloat, transaction: Transaction) {
-        if translationX < -swipeThreshold { // This is the left swipe
-            withAnimation {
-                dragOffset = CGSize(width: translationX, height: 0)
+        if translationX < -swipeThreshold {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                dragOffset = CGSize(width: max(translationX, -220), height: 0)
             }
             Task { await viewModel.approve(transaction) }
-        } else if translationX > swipeThreshold { // This is the right swipe
-            withAnimation {
-                dragOffset = CGSize(width: translationX, height: 0)
-            }
-            pendingCategoryChange = transaction
         } else {
             withAnimation(.spring()) {
                 dragOffset = .zero

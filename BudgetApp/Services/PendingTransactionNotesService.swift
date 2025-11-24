@@ -38,7 +38,7 @@ struct PendingTransactionNotesService {
             payload["notes"] = NSNull()
         }
 
-        print("[NOTES] updateNote tx=\(transactionID) payload=\(payload)")
+        AppLogger.log("[NOTES] updateNote tx=\(transactionID) payload=\(payload)")
 
         let body: Data
         do {

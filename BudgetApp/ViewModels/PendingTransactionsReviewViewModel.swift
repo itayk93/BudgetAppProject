@@ -30,31 +30,31 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
     }
 
     func refresh() async {
-        print("🔄 [DEBUG] Starting refresh in PendingTransactionsReviewViewModel")
+        AppLogger.log("🔄 [DEBUG] Starting refresh in PendingTransactionsReviewViewModel")
         guard let service = service else {
-            print("❌ [DEBUG] Service is nil")
+            AppLogger.log("❌ [DEBUG] Service is nil")
             return
         }
         guard let userID = resolvedUserID() else {
-            print("❌ [DEBUG] No user ID resolved")
+            AppLogger.log("❌ [DEBUG] No user ID resolved")
             errorMessage = "לא נמצא user.id. התחבר מחדש כדי למשוך עסקאות מ-Supabase."
             return
         }
-        print("🔍 [DEBUG] Using user ID: \(userID)")
+        AppLogger.log("🔍 [DEBUG] Using user ID: \(userID)")
         loading = true
         errorMessage = nil
         do {
             async let txs = service.fetchPendingTransactions(for: userID, hoursBack: lookbackHours)
             async let cats = service.fetchCategoryOptions(for: userID)
             let (transactions, categories) = try await (txs, cats)
-            print("✅ [DEBUG] Received \(transactions.count) transactions and \(categories.count) categories")
+            AppLogger.log("✅ [DEBUG] Received \(transactions.count) transactions and \(categories.count) categories")
             withAnimation(.easeInOut) {
                 self.transactions = transactions
             }
             self.categories = categories
-            print("📊 [DEBUG] ViewModel now has \(self.transactions.count) transactions, \(self.categories.count) categories")
+            AppLogger.log("📊 [DEBUG] ViewModel now has \(self.transactions.count) transactions, \(self.categories.count) categories")
         } catch {
-            print("❌ [DEBUG] Error during refresh: \(error)")
+            AppLogger.log("❌ [DEBUG] Error during refresh: \(error)")
             errorMessage = error.localizedDescription
         }
         loading = false
@@ -237,12 +237,12 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         processingTransactionID = transaction.id
         let index = removeTransaction(transaction)
         do {
-            print("🕵️‍♂️ [HIDE-BUSINESS] user_id=\(userID), business=\(businessNameRaw)")
+            AppLogger.log("🕵️‍♂️ [HIDE-BUSINESS] user_id=\(userID), business=\(businessNameRaw)")
             try await service.hideBusiness(for: userID, businessName: businessNameRaw, reason: hiddenBusinessReason)
             try await service.delete(transactionID: transaction.id)
             actionMessage = "\(businessNameRaw) הוסתר והעסקה נמחקה מהתזרים."
         } catch {
-            print("❌ [HIDE-BUSINESS] Failed to hide \(businessNameRaw). user_id=\(userID) error=\(error)")
+            AppLogger.log("❌ [HIDE-BUSINESS] Failed to hide \(businessNameRaw). user_id=\(userID) error=\(error)")
             if error.localizedDescription.contains("duplicate key value") {
                 actionMessage = "\(businessNameRaw) כבר מסומן כנסתר."
             } else if error.localizedDescription.contains("is not present in table \"users\"") {
@@ -338,13 +338,13 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
 
     private func resolvedUserID() -> String? {
         let rawValue = KeychainStore.get("user.id")
-        print("🔑 [DEBUG] Keychain user.id raw value: \(rawValue ?? "nil")")
+        AppLogger.log("🔑 [DEBUG] Keychain user.id raw value: \(rawValue ?? "nil")")
         guard let value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
               !value.isEmpty else {
-            print("❌ [DEBUG] No valid user ID found in Keychain")
+            AppLogger.log("❌ [DEBUG] No valid user ID found in Keychain")
             return nil
         }
-        print("✅ [DEBUG] Resolved user ID: \(value)")
+        AppLogger.log("✅ [DEBUG] Resolved user ID: \(value)")
         return value
     }
 

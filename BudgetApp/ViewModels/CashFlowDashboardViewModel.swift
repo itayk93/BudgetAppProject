@@ -258,34 +258,34 @@ final class CashFlowDashboardViewModel: ObservableObject {
         errorMessage = nil
         defer { loading = false }
         do {
-            print("📥 [LOAD INITIAL] Starting to fetch cash flows...")
+            AppLogger.log("📥 [LOAD INITIAL] Starting to fetch cash flows...")
             // Cash flows
             let fetched: [CashFlow] = try await apiClient.get("cashflows")
-            print("📥 [LOAD INITIAL] Fetched \(fetched.count) cash flows from API")
+            AppLogger.log("📥 [LOAD INITIAL] Fetched \(fetched.count) cash flows from API")
             for cf in fetched {
-                print("  - \(cf.name) (ID: \(cf.id), is_default: \(cf.is_default))")
+                AppLogger.log("  - \(cf.name) (ID: \(cf.id), is_default: \(cf.is_default))")
             }
             cashFlows = fetched
             selectedCashFlow = fetched.first(where: { $0.is_default == true }) ?? fetched.first
-            print("📥 [LOAD INITIAL] Selected cash flow: \(selectedCashFlow?.name ?? "NONE")")
+            AppLogger.log("📥 [LOAD INITIAL] Selected cash flow: \(selectedCashFlow?.name ?? "NONE")")
 
             // Category order is optional (backend MUST return JSON; if not — skip)
             do {
                 let orders = try await categoryOrderService.getCategoryOrders()
                 categoryOrderMap = Dictionary(uniqueKeysWithValues: orders.map { ($0.categoryName, $0) })
-                print("✅ [CATEGORY ORDER] Loaded \(categoryOrderMap.count) categories from API")
+                AppLogger.log("✅ [CATEGORY ORDER] Loaded \(categoryOrderMap.count) categories from API")
                 for (name, order) in categoryOrderMap.prefix(5) {
-                    print("  → \(name): order=\(order.displayOrder ?? -1)")
+                    AppLogger.log("  → \(name): order=\(order.displayOrder ?? -1)")
                 }
             } catch {
-                print("❌ [CATEGORY ORDER] Failed: \(error)")
+                AppLogger.log("❌ [CATEGORY ORDER] Failed: \(error)")
                 categoryOrderMap = [:]
             }
 
             // Prime charts & cards
             await refreshData()
         } catch {
-            print("❌ [LOAD INITIAL] Error: \(error.localizedDescription)")
+            AppLogger.log("❌ [LOAD INITIAL] Error: \(error.localizedDescription)")
             errorMessage = "Failed to load initial data: \(error.localizedDescription)"
         }
     }
@@ -294,22 +294,22 @@ final class CashFlowDashboardViewModel: ObservableObject {
         do {
             let orders = try await categoryOrderService.getCategoryOrders()
             categoryOrderMap = Dictionary(uniqueKeysWithValues: orders.map { ($0.categoryName, $0) })
-            print("✅ [CATEGORY ORDER] Refreshed \(categoryOrderMap.count) entries")
+            AppLogger.log("✅ [CATEGORY ORDER] Refreshed \(categoryOrderMap.count) entries")
         } catch {
-            print("❌ [CATEGORY ORDER] Refresh failed: \(error)")
+            AppLogger.log("❌ [CATEGORY ORDER] Refresh failed: \(error)")
         }
     }
 
     /// Refresh both multi-month charts and single-month cards
     func refreshData() async {
-        print("🔍 [REFRESH DATA] selectedCashFlow is: \(selectedCashFlow?.name ?? "NIL")")
+        AppLogger.log("🔍 [REFRESH DATA] selectedCashFlow is: \(selectedCashFlow?.name ?? "NIL")")
         guard let cf = selectedCashFlow else {
-            print("❌ [REFRESH DATA] No cash flow selected!")
+            AppLogger.log("❌ [REFRESH DATA] No cash flow selected!")
             errorMessage = "No cash flow selected."
             return
         }
 
-        print("📊 Displaying cash flow: \(cf.name) (ID: \(cf.id))")
+        AppLogger.log("📊 Displaying cash flow: \(cf.name) (ID: \(cf.id))")
 
         loading = true
         errorMessage = nil
@@ -396,23 +396,23 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
         } catch {
             // Keep a friendly error and clear UI so the user can retry
-            print("Decoding error in refreshData: \(error)")
+            AppLogger.log("Decoding error in refreshData: \(error)")
             if let decodingError = error as? DecodingError {
                 switch decodingError {
                 case .dataCorrupted(let context):
-                    print("Data corrupted: \(context.debugDescription)")
-                    print("Coding path: \(context.codingPath)")
+                    AppLogger.log("Data corrupted: \(context.debugDescription)")
+                    AppLogger.log("Coding path: \(context.codingPath)")
                 case .keyNotFound(let key, let context):
-                    print("Key '\(key.stringValue)' not found: \(context.debugDescription)")
-                    print("Coding path: \(context.codingPath)")
+                    AppLogger.log("Key '\(key.stringValue)' not found: \(context.debugDescription)")
+                    AppLogger.log("Coding path: \(context.codingPath)")
                 case .valueNotFound(let type, let context):
-                    print("Value of type '\(type)' not found: \(context.debugDescription)")
-                    print("Coding path: \(context.codingPath)")
+                    AppLogger.log("Value of type '\(type)' not found: \(context.debugDescription)")
+                    AppLogger.log("Coding path: \(context.codingPath)")
                 case .typeMismatch(let type, let context):
-                    print("Type mismatch for type '\(type)': \(context.debugDescription)")
-                    print("Coding path: \(context.codingPath)")
+                    AppLogger.log("Type mismatch for type '\(type)': \(context.debugDescription)")
+                    AppLogger.log("Coding path: \(context.codingPath)")
                 @unknown default:
-                    print("Unknown decoding error: \(decodingError.localizedDescription)")
+                    AppLogger.log("Unknown decoding error: \(decodingError.localizedDescription)")
                 }
             }
             errorMessage = "Failed to refresh data: \(error.localizedDescription)"
@@ -589,7 +589,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                     body: DeleteBody(transaction_id: transaction.id)
                 ) as AppEmptyResponse
             } catch {
-                print("❌ [DELETE TX] Failed deleting \(transaction.id): \(directError) / fallback: \(error)")
+                AppLogger.log("❌ [DELETE TX] Failed deleting \(transaction.id): \(directError) / fallback: \(error)")
                 errorMessage = error.localizedDescription
                 return
             }
@@ -601,6 +601,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         transactions.removeAll { $0.id == transaction.id }
         pendingTransactions.removeAll { $0.id == transaction.id }
         await refreshData()
+        AppLogger.log("✅ [DELETE TX] Transaction \(transaction.id) deleted successfully", force: true)
     }
 
     // Exposed helpers used by view
@@ -971,10 +972,10 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 let orderFromMap = categoryOrderMap[firstMemberName]?.displayOrder
                 let groupOrder = orderFromMap ?? Int.max
                 
-                print("🔍 [GROUP SORTING] Group: '\(groupName)'")
-                print("  - First member: '\(firstMemberName)'")
-                print("  - displayOrder from map: \(orderFromMap.map(String.init) ?? "nil")")
-                print("  - Final groupOrder: \(groupOrder)")
+                AppLogger.log("🔍 [GROUP SORTING] Group: '\(groupName)'")
+                AppLogger.log("  - First member: '\(firstMemberName)'")
+                AppLogger.log("  - displayOrder from map: \(orderFromMap.map(String.init) ?? "nil")")
+                AppLogger.log("  - Final groupOrder: \(groupOrder)")
 
                 displayableItems.append(DisplayableItem(item: .sharedGroup(groupSummary), order: groupOrder))
                 newSharedGroups[groupName] = groupSummary
@@ -990,19 +991,19 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
 
         // Debug: Print final ordered items
-        print("📋 [ORDERED ITEMS] Final list (\(orderedItems.count) items):")
+        AppLogger.log("📋 [ORDERED ITEMS] Final list (\(orderedItems.count) items):")
         for (index, item) in orderedItems.enumerated() {
             switch item {
             case .income:
-                print("  \(index + 1). [INCOME]")
+                AppLogger.log("  \(index + 1). [INCOME]")
             case .savings:
-                print("  \(index + 1). [SAVINGS]")
+                AppLogger.log("  \(index + 1). [SAVINGS]")
             case .nonCashflow:
-                print("  \(index + 1). [NON-CASHFLOW]")
+                AppLogger.log("  \(index + 1). [NON-CASHFLOW]")
             case .sharedGroup(let group):
-                print("  \(index + 1). [GROUP] \(group.title)")
+                AppLogger.log("  \(index + 1). [GROUP] \(group.title)")
             case .category(let cat):
-                print("  \(index + 1). [CATEGORY] \(cat.name)")
+                AppLogger.log("  \(index + 1). [CATEGORY] \(cat.name)")
             }
         }
     }

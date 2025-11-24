@@ -118,36 +118,36 @@ struct LoginView: View {
 
                         Button(action: {
                             Task {
-                                print("🔵 [LOGIN] Button pressed")
+                                AppLogger.log("🔵 [LOGIN] Button pressed")
                                 if isRegister {
-                                    print("🔵 [LOGIN] Registering...")
+                                    AppLogger.log("🔵 [LOGIN] Registering...")
                                     await vm.register()
                                 } else {
-                                    print("🔵 [LOGIN] Logging in...")
+                                    AppLogger.log("🔵 [LOGIN] Logging in...")
                                     await vm.login()
                                 }
 
                                 // After successful login/register: persist userId and ensure the
                                 // CashFlow dashboard is primed with the correct selected cash flow.
-                                print("🔵 [LOGIN] isAuthenticated: \(vm.isAuthenticated), currentUser: \(vm.currentUser?.username ?? "nil")")
+                                AppLogger.log("🔵 [LOGIN] isAuthenticated: \(vm.isAuthenticated), currentUser: \(vm.currentUser?.username ?? "nil")")
                                 if vm.isAuthenticated, let user = vm.currentUser {
-                                    print("🔵 [LOGIN] ✅ Login successful for user: \(user.username) (ID: \(user.id))")
+                                    AppLogger.log("🔵 [LOGIN] ✅ Login successful for user: \(user.username) (ID: \(user.id))")
                                     UserDefaults.standard.set(user.id, forKey: "auth.userId")
                                     // Load cash flows into the shared dashboard VM and pick the default
-                                    print("🔵 [LOGIN] Loading cash flows from API...")
+                                    AppLogger.log("🔵 [LOGIN] Loading cash flows from API...")
                                     await appState.cashFlowDashboardVM.loadInitial()
-                                    print("🔵 [LOGIN] Loaded \(appState.cashFlowDashboardVM.cashFlows.count) cash flows")
-                                    print("🔵 [LOGIN] appState.cashFlowDashboardVM.selectedCashFlow: \(appState.cashFlowDashboardVM.selectedCashFlow?.name ?? "nil")")
+                                    AppLogger.log("🔵 [LOGIN] Loaded \(appState.cashFlowDashboardVM.cashFlows.count) cash flows")
+                                    AppLogger.log("🔵 [LOGIN] appState.cashFlowDashboardVM.selectedCashFlow: \(appState.cashFlowDashboardVM.selectedCashFlow?.name ?? "nil")")
                                     if let defaultCF = appState.cashFlowDashboardVM.cashFlows.first(where: { $0.is_default == true }) ?? appState.cashFlowDashboardVM.cashFlows.first {
-                                        print("🔵 [LOGIN] Setting selectedCashFlow to: \(defaultCF.name)")
+                                        AppLogger.log("🔵 [LOGIN] Setting selectedCashFlow to: \(defaultCF.name)")
                                         appState.cashFlowDashboardVM.selectedCashFlow = defaultCF
-                                        print("🔵 [LOGIN] After set: \(appState.cashFlowDashboardVM.selectedCashFlow?.name ?? "nil")")
+                                        AppLogger.log("🔵 [LOGIN] After set: \(appState.cashFlowDashboardVM.selectedCashFlow?.name ?? "nil")")
                                         UserDefaults.standard.set(defaultCF.id, forKey: "app.selectedCashFlowId")
                                     } else {
-                                        print("🔵 [LOGIN] ❌ No cash flows available!")
+                                        AppLogger.log("🔵 [LOGIN] ❌ No cash flows available!")
                                     }
                                 } else {
-                                    print("🔵 [LOGIN] ❌ Login failed or user not found")
+                                    AppLogger.log("🔵 [LOGIN] ❌ Login failed or user not found")
                                 }
                             }
                         }) {

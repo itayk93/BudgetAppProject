@@ -74,8 +74,8 @@ public final class TransactionsService {
     ) async throws {
         
 #if DEBUG
-        print("🔍 [SplitTransaction] Starting with ID: \(originalTransactionId)")
-        print("🔍 [SplitTransaction] Number of splits: \(splits.count)")
+        AppLogger.log("🔍 [SplitTransaction] Starting with ID: \(originalTransactionId)")
+        AppLogger.log("🔍 [SplitTransaction] Number of splits: \(splits.count)")
 #endif
         
         let url = baseURL.appendingPathComponent("transactions/split")
@@ -87,12 +87,12 @@ public final class TransactionsService {
         if let token = KeychainStore.get("auth.token") {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 #if DEBUG
-            print("🔐 [SplitTransaction] Added Authorization header with token")
+            AppLogger.log("🔐 [SplitTransaction] Added Authorization header with token")
 #endif
         }
 
 #if DEBUG
-        print("🔗 [SplitTransaction] Full URL being called: \(url.absoluteString)")
+        AppLogger.log("🔗 [SplitTransaction] Full URL being called: \(url.absoluteString)")
 #endif
 
         // Validate request data
@@ -149,14 +149,14 @@ public final class TransactionsService {
             payload = try JSONSerialization.data(withJSONObject: jsonDict, options: [])
         } catch {
 #if DEBUG
-            print("❌ [SplitTransaction] Encoding error: \(error)")
+            AppLogger.log("❌ [SplitTransaction] Encoding error: \(error)")
 #endif
             throw APIError(message: "Failed to encode split transaction request: \(error.localizedDescription)")
         }
 
 #if DEBUG
         if let json = String(data: payload, encoding: .utf8) {
-            print("🚀 [SplitTransaction] Sending payload: \(json)")
+            AppLogger.log("🚀 [SplitTransaction] Sending payload: \(json)")
         }
 #endif
         
@@ -176,9 +176,9 @@ public final class TransactionsService {
 
 #if DEBUG
             if let preview = String(data: data, encoding: .utf8) {
-                print("📥 [SplitTransaction] Response body: \(preview)")
-                print("📥 [SplitTransaction] Content-Type: \(http.value(forHTTPHeaderField: "Content-Type") ?? "unknown")")
-                print("📥 [SplitTransaction] All headers: \(http.allHeaderFields)")
+                AppLogger.log("📥 [SplitTransaction] Response body: \(preview)")
+                AppLogger.log("📥 [SplitTransaction] Content-Type: \(http.value(forHTTPHeaderField: "Content-Type") ?? "unknown")")
+                AppLogger.log("📥 [SplitTransaction] All headers: \(http.allHeaderFields)")
             }
 #endif
 
@@ -192,13 +192,13 @@ public final class TransactionsService {
             }
             
 #if DEBUG
-            print("❌ [SplitTransaction] Failed with status \(statusCode): \(serverMessage)")
+            AppLogger.log("❌ [SplitTransaction] Failed with status \(statusCode): \(serverMessage)")
 #endif
             throw APIError(message: "Splitting transaction failed: \(serverMessage)")
         }
         
 #if DEBUG
-        print("✅ [SplitTransaction] Request completed successfully for \(originalTransactionId)")
+        AppLogger.log("✅ [SplitTransaction] Request completed successfully for \(originalTransactionId)")
 #endif
     }
 }

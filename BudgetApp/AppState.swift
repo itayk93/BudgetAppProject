@@ -12,7 +12,7 @@ final class AppState: ObservableObject {
     init() {
         let initialBaseURL = AppConfig.baseURL
         self.baseURL = initialBaseURL
-        print("AppAPIClient initialized with baseURL: \(initialBaseURL.absoluteString)")
+        AppLogger.log("AppAPIClient initialized with baseURL: \(initialBaseURL.absoluteString)")
         self.apiClient = AppAPIClient(baseURL: initialBaseURL)
         self.cashFlowDashboardVM = CashFlowDashboardViewModel(apiClient: self.apiClient)
         self.pendingTransactionsVM = PendingTransactionsReviewViewModel()

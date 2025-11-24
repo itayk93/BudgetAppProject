@@ -99,7 +99,7 @@ final class AppAPIClient {
 
         // Log statusCode and Content-Type
         let contentType = http.value(forHTTPHeaderField: "Content-Type") ?? "N/A"
-        print("APIClient Response for \(path): Status Code = \(http.statusCode), Content-Type = \(contentType)")
+        AppLogger.log("APIClient Response for \(path): Status Code = \(http.statusCode), Content-Type = \(contentType)")
 
         guard (200...299).contains(http.statusCode) else {
             let body = String(data: data, encoding: .utf8) ?? "<non-utf8 \(data.count)b>"
@@ -111,7 +111,12 @@ final class AppAPIClient {
                 "HTTP \(http.statusCode) for \(path). Body (first 400 chars): \(body.prefix(400))")
         }
 
-        // Enforce JSON ONLY
+        // Allow intentionally empty responses (DELETE/204 often omit headers/body)
+        if data.isEmpty {
+            return
+        }
+
+        // Enforce JSON ONLY for responses with content
         let ct = contentType.lowercased()
         let isJSON = ct.contains("application/json") || ct.contains("application/problem+json")
         if !isJSON {
@@ -159,24 +164,24 @@ extension AppAPIClient {
 
         // Try bare array first
         if let arr = try? decoder.decode([Transaction].self, from: data) {
-            print("✅ [TRANSACTIONS] Decoded bare array successfully: \(arr.count) transactions")
+            AppLogger.log("✅ [TRANSACTIONS] Decoded bare array successfully: \(arr.count) transactions")
             return arr
         }
         // Try wrapped object
         if let wrapped = try? decoder.decode(TransactionsWrapped.self, from: data) {
             if let a = wrapped.transactions {
-                print("✅ [TRANSACTIONS] Decoded wrapped 'transactions' field: \(a.count) transactions")
+                AppLogger.log("✅ [TRANSACTIONS] Decoded wrapped 'transactions' field: \(a.count) transactions")
                 return a
             }
             if let a = wrapped.data {
-                print("✅ [TRANSACTIONS] Decoded wrapped 'data' field: \(a.count) transactions")
+                AppLogger.log("✅ [TRANSACTIONS] Decoded wrapped 'data' field: \(a.count) transactions")
                 return a
             }
         }
 
         // Enhanced error logging
         let preview = String(data: data.prefix(600), encoding: .utf8) ?? "<binary>"
-        print("❌ [TRANSACTIONS] Failed to decode. Full preview:\n\(preview)")
+        AppLogger.log("❌ [TRANSACTIONS] Failed to decode. Full preview:\n\(preview)")
 
         // Try to decode with more detailed error information using a temporary decoder
         let tempDecoder = JSONDecoder()
@@ -186,7 +191,7 @@ extension AppAPIClient {
         do {
             _ = try tempDecoder.decode([Transaction].self, from: data)
         } catch let decodingError {
-            print("❌ [TRANSACTIONS] Decoding error: \(decodingError)")
+            AppLogger.log("❌ [TRANSACTIONS] Decoding error: \(decodingError)")
         }
 
         throw APIError(message: "Could not decode transactions payload. Preview: \(preview)")

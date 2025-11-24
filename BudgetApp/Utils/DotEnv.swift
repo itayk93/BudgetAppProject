@@ -21,10 +21,10 @@ class DotEnv {
         } else if FileManager.default.fileExists(atPath: pathInBundleRoot) {
             path = pathInBundleRoot
         } else {
-            print("⚠️ [DotEnv] .env file not found in app bundle resources")
+            AppLogger.log("⚠️ [DotEnv] .env file not found in app bundle resources")
             return
         }
-        print("📄 [DotEnv] Loading .env from bundle path: \(path!)")
+        AppLogger.log("📄 [DotEnv] Loading .env from bundle path: \(path!)")
         
         do {
             let contents = try String(contentsOfFile: path!, encoding: .utf8)
@@ -51,11 +51,27 @@ class DotEnv {
                 }
             }
         } catch {
-            print("⚠️ [DotEnv] Error reading .env file: \(error)")
+            AppLogger.log("⚠️ [DotEnv] Error reading .env file: \(error)")
         }
     }
     
     func get(_ key: String) -> String? {
         return env[key]
+    }
+}
+
+enum AppLogger {
+    /// Enable this flag if you need to temporarily re-enable legacy logging.
+    private static let enabled = false
+
+    static func log(
+        _ items: Any...,
+        separator: String = " ",
+        terminator: String = "\n",
+        force: Bool = false
+    ) {
+        guard enabled || force else { return }
+        let message = items.map { String(describing: $0) }.joined(separator: separator)
+        Swift.print(message, terminator: terminator)
     }
 }

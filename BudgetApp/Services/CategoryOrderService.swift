@@ -49,23 +49,23 @@ final class CategoryOrderService {
     }
 
     func getCategoryOrders() async throws -> [CategoryOrder] {
-        print("🚚 [CategoryOrderService] Fetching via AppAPIClient from endpoint: /categories/order")
+        AppLogger.log("🚚 [CategoryOrderService] Fetching via AppAPIClient from endpoint: /categories/order")
         
         // Use the generic 'get' method from AppAPIClient.
         // The client is already configured with the base URL and auth.
         do {
             let response: CategoryOrderResponse = try await apiClient.get("/categories/order")
-            print("✅ [CategoryOrderService] Successfully fetched \(response.categories.count) category orders via backend.")
+            AppLogger.log("✅ [CategoryOrderService] Successfully fetched \(response.categories.count) category orders via backend.")
             return response.categories
         } catch {
-            print("❌ [CategoryOrderService] Failed to fetch or decode category orders via backend: \(error)")
+            AppLogger.log("❌ [CategoryOrderService] Failed to fetch or decode category orders via backend: \(error)")
             // Return an empty array on failure to prevent crashes, consistent with original behavior.
             return []
         }
     }
 
     func updateSharedCategory(categoryId: String?, sharedCategoryName: String?) async throws {
-        print("🚚 [CategoryOrderService] Updating shared category for ID \(categoryId ?? "nil") to '\(sharedCategoryName ?? "nil")'")
+        AppLogger.log("🚚 [CategoryOrderService] Updating shared category for ID \(categoryId ?? "nil") to '\(sharedCategoryName ?? "nil")'")
 
         let requestBody = UpdateSharedCategoryRequest(
             categoryId: categoryId,
@@ -77,7 +77,7 @@ final class CategoryOrderService {
         // may not return any meaningful content on a successful POST.
         let _: EmptyResponse = try await apiClient.post("/categories/update-shared-category", body: requestBody)
         
-        print("✅ [CategoryOrderService] Successfully updated shared category.")
+        AppLogger.log("✅ [CategoryOrderService] Successfully updated shared category.")
     }
 
     func reorderCategories(orderData: [CategoryOrder]) async throws {
@@ -85,15 +85,15 @@ final class CategoryOrderService {
             ReorderCategoryRequest(id: $0.id, displayOrder: $0.displayOrder)
         })
 
-        print("🚚 [CategoryOrderService] Saving order for \(payload.categoryOrders.count) categories")
+        AppLogger.log("🚚 [CategoryOrderService] Saving order for \(payload.categoryOrders.count) categories")
         let _: EmptyResponse = try await apiClient.post("/categories/reorder", body: payload)
-        print("✅ [CategoryOrderService] Reorder persisted")
+        AppLogger.log("✅ [CategoryOrderService] Reorder persisted")
     }
 
     func updateWeeklyDisplay(categoryId: String?, showInWeeklyView: Bool) async throws {
         let payload = WeeklyDisplayRequest(categoryId: categoryId, showInWeeklyView: showInWeeklyView)
-        print("🚚 [CategoryOrderService] Toggling weekly display for \(categoryId ?? "nil") to \(showInWeeklyView)")
+        AppLogger.log("🚚 [CategoryOrderService] Toggling weekly display for \(categoryId ?? "nil") to \(showInWeeklyView)")
         let _: EmptyResponse = try await apiClient.post("/categories/update-weekly-display", body: payload)
-        print("✅ [CategoryOrderService] Weekly display updated")
+        AppLogger.log("✅ [CategoryOrderService] Weekly display updated")
     }
 }
