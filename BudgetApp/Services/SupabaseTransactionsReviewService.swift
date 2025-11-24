@@ -170,37 +170,7 @@ final class SupabaseTransactionsReviewService {
 
         let rows = try decoder.decode([Transaction].self, from: data)
         AppLogger.log("🔍 [DEBUG] Raw decode returned \(rows.count) transactions")
-
-        AppLogger.log("🔍 [DEBUG] About to filter \(rows.count) transactions for final cleanup")
-
-        // Additional local filtering – by suppress/split and currency only (date already filtered in DB)
-        let filteredRows = rows.filter { tx in
-            let isSuppressed = tx.suppress_from_automation ?? false
-            let wasSplit = tx.manual_split_applied ?? false
-
-            // Filter out USD transactions (only ILS should be shown)
-            let trimmedCurrency = tx.currency?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-            let isUSD = trimmedCurrency == "USD" || trimmedCurrency == "$" || trimmedCurrency?.contains("DOLLAR") == true
-
-            guard !isSuppressed && !wasSplit && !isUSD else {
-                if isSuppressed {
-                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – suppressed: \(isSuppressed)")
-                } else if wasSplit {
-                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – split: \(wasSplit)")
-                } else if isUSD {
-                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – currency is USD: \(tx.currency ?? "N/A")")
-                }
-                return false
-            }
-
-            return true
-        }
-
-        AppLogger.log("🔍 [DEBUG] Filtered from \(rows.count) to \(filteredRows.count) transactions")
-        for tx in filteredRows.prefix(3) {
-            AppLogger.log("✅ [DEBUG] Keeping tx id=\(tx.id), business_name=\(tx.business_name ?? "N/A"), status=\(tx.status ?? "N/A")")
-        }
-
+        let filteredRows = filterAutomatedTransactions(rows)
         return filteredRows
     }
 
@@ -230,6 +200,58 @@ final class SupabaseTransactionsReviewService {
         }
         AppLogger.log("🔍 [DEBUG] Final categories count: \(categories.count)")
         return categories.sorted { $0.displayOrder < $1.displayOrder }
+    }
+
+    func fetchReviewedTransactions(
+        for userID: String,
+        businessName searchTerm: String?,
+        limit: Int = 200
+    ) async throws -> [Transaction] {
+        AppLogger.log("🔍 [DEBUG] Fetching reviewed transactions for user_id: \(userID)")
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "*"),
+            URLQueryItem(name: "user_id", value: "eq.\(userID)"),
+            URLQueryItem(name: "status", value: "eq.reviewed"),
+            URLQueryItem(name: "order", value: "payment_date.desc"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+
+        if let term = searchTerm?.trimmingCharacters(in: .whitespacesAndNewlines), !term.isEmpty {
+            let ilike = "ilike.*\(term)*"
+            query.append(URLQueryItem(name: "business_name", value: ilike))
+            AppLogger.log("🔍 [DEBUG] Applying business_name filter: \(ilike)")
+        }
+
+        AppLogger.log("🔍 [DEBUG] Fetching with query: \(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: ", "))")
+
+        let data = try await request(path: "bank_scraper_pending_transactions", queryItems: query)
+        let rows = try decoder.decode([Transaction].self, from: data)
+        AppLogger.log("🔍 [DEBUG] Raw decode returned \(rows.count) reviewed transactions")
+        return filterAutomatedTransactions(rows)
+    }
+
+    func revertTransactionsToPending(transactionIDs: [String]) async throws {
+        guard !transactionIDs.isEmpty else { return }
+        AppLogger.log("⚙️ [DEBUG] Reverting \(transactionIDs.count) transactions to pending")
+        let payload = TransactionUpdatePayload(
+            category_name: nil,
+            status: "pending",
+            reviewed_at: nil,
+            notes: nil,
+            flow_month: nil
+        )
+        let encoder = JSONEncoder()
+        let body = try encoder.encode(payload)
+        for id in transactionIDs {
+            let query = [URLQueryItem(name: "id", value: "eq.\(id)")]
+            _ = try await request(
+                path: "bank_scraper_pending_transactions",
+                method: "PATCH",
+                queryItems: query,
+                body: body,
+                prefer: "return=minimal"
+            )
+        }
     }
 
     func markReviewed(transactionID: String, note: String? = nil) async throws {
@@ -394,6 +416,35 @@ final class SupabaseTransactionsReviewService {
             body: body,
             prefer: "return=minimal"
         )
+    }
+
+    private func filterAutomatedTransactions(_ rows: [Transaction]) -> [Transaction] {
+        AppLogger.log("🔍 [DEBUG] About to filter \(rows.count) transactions for final cleanup")
+        let filteredRows = rows.filter { tx in
+            let isSuppressed = tx.suppress_from_automation ?? false
+            let wasSplit = tx.manual_split_applied ?? false
+
+            let trimmedCurrency = tx.currency?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let isUSD = trimmedCurrency == "USD" || trimmedCurrency == "$" || trimmedCurrency?.contains("DOLLAR") == true
+
+            guard !isSuppressed && !wasSplit && !isUSD else {
+                if isSuppressed {
+                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – suppressed: \(isSuppressed)")
+                } else if wasSplit {
+                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – split: \(wasSplit)")
+                } else if isUSD {
+                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – currency is USD: \(tx.currency ?? "N/A")")
+                }
+                return false
+            }
+
+            return true
+        }
+        AppLogger.log("🔍 [DEBUG] Filtered from \(rows.count) to \(filteredRows.count) transactions")
+        for tx in filteredRows.prefix(3) {
+            AppLogger.log("✅ [DEBUG] Keeping tx id=\(tx.id), business_name=\(tx.business_name ?? "N/A"), status=\(tx.status ?? "N/A")")
+        }
+        return filteredRows
     }
 
     private func request(
