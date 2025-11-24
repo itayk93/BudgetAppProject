@@ -874,7 +874,7 @@ struct CashflowCardsView: View {
 
     private var weeklyBudgetInfo: WeeklyBudgetInfo? {
         let weeklyCategories = vm.orderedItems.compactMap { item -> CashFlowDashboardViewModel.CategorySummary? in
-            if case .category(let cat) = item, !cat.isFixed && vm.isWeeklyCategory(cat.name) {
+            if case .category(let cat) = item, vm.isWeeklyCategory(cat.name) {
                 return cat
             }
             return nil
