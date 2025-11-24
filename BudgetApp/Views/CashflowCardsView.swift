@@ -162,14 +162,8 @@ struct CashflowCardsView: View {
                             force: true
                         )
                         Task {
-                            if transactionToDelete.status == "pending" {
-                                AppLogger.log("🗂️ Deleting pending transaction \(transactionToDelete.id)", force: true)
-                                await pendingTxsVm.delete(transactionToDelete)
-                                await vm.refreshData()
-                            } else {
-                                AppLogger.log("🧾 Deleting cashflow transaction \(transactionToDelete.id)", force: true)
-                                await vm.deleteTransaction(transactionToDelete)
-                            }
+                            AppLogger.log("🗑️ Deleting transaction \(transactionToDelete.id)", force: true)
+                            await vm.deleteTransaction(transactionToDelete)
                             await pendingTxsVm.refresh()
                         }
                     },
