@@ -2263,14 +2263,24 @@ private extension CashflowCardsView {
                         Spacer()
                     }
                     HStack(spacing: 8) {
-                        Image(systemName: categoryIcon(for: category.name))
-                            .foregroundColor(.secondary)
-                        Spacer()
+
+                        // קודם אייקון
+                        if let iconName = categoryIcon(for: category.name) as String? {
+                            Image(systemName: iconName)
+                                .foregroundColor(.secondary)
+                        }
+
+                        // אחר כך שם הקטגוריה
+                        Text(category.name)
+                            .font(.title3)
+                            .bold()
+
+                        // בסוף תגית המצב – "חריגה" / "יעד" וכו'
                         if targetValue > 0 {
                             statusBadge(targetValue: targetValue, spent: category.totalSpent)
                         }
-                        Text(category.name).font(.title3).bold()
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
                             VStack(alignment: .leading, spacing: 4) {
