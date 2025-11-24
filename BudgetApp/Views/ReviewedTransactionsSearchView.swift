@@ -28,7 +28,9 @@ struct ReviewedTransactionsSearchView: View {
         }
         .navigationTitle("עסקאות שנבחנות מחדש")
         .environment(\.layoutDirection, .rightToLeft)
-        .onChange(of: searchText) { scheduleSearch(for: $0) }
+        .onChange(of: searchText) { newValue, _ in
+            scheduleSearch(for: newValue)
+        }
         .onChange(of: viewModel.actionMessage) { newValue, _ in
             guard let value = newValue else { return }
             toastWorkItem?.cancel()

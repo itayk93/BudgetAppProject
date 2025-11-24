@@ -7,6 +7,12 @@ import Foundation
 import SwiftUI
 import Combine
 
+fileprivate struct PartialLoadMetrics: Sendable {
+    var networkDuration: TimeInterval = 0
+    var buildDuration: TimeInterval = 0
+    var servedFromCache: Bool = false
+}
+
 @MainActor
 final class CashFlowDashboardViewModel: ObservableObject {
 
@@ -291,12 +297,6 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private var lastCardsServedFromCache: Bool = false
     private var lastChartsServedFromCache: Bool = false
 
-    private struct PartialLoadMetrics {
-        var networkDuration: TimeInterval = 0
-        var buildDuration: TimeInterval = 0
-        var servedFromCache: Bool = false
-    }
-
     /// name -> config (display order, shared mapping, weekly flag, etc.)
     private var categoryOrderMap: [String: CategoryOrder] = [:]
 
@@ -428,15 +428,16 @@ final class CashFlowDashboardViewModel: ObservableObject {
         let refreshStart = Date()
         var cardsMetrics = PartialLoadMetrics()
         var chartsMetrics = PartialLoadMetrics()
+        let emptyMetrics = PartialLoadMetrics()
 
         await withTaskGroup(of: (String, PartialLoadMetrics).self) { group in
             group.addTask { [weak self] in
-                guard let self else { return ("cards", PartialLoadMetrics()) }
+                guard let self else { return ("cards", emptyMetrics) }
                 let metrics = await self.loadCurrentMonthOnly(for: cf)
                 return ("cards", metrics)
             }
             group.addTask { [weak self] in
-                guard let self else { return ("charts", PartialLoadMetrics()) }
+                guard let self else { return ("charts", emptyMetrics) }
                 let metrics = await self.loadChartsOnly(for: cf)
                 return ("charts", metrics)
             }
@@ -853,7 +854,8 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 query: nil,
                 body: Optional<Data>.none
             ) as AppEmptyResponse
-        } catch let directError {
+        } catch {
+            let directError = error
             // Fallback to explicit /delete endpoint if needed by backend
             struct DeleteBody: Encodable { let transaction_id: String }
             do {
@@ -869,10 +871,6 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 lastMutation = .failed(error.localizedDescription)
                 return
             }
-        } catch {
-            errorMessage = error.localizedDescription
-            lastMutation = .failed(error.localizedDescription)
-            return
         }
 
         mutateState(using: TransactionDiff(changes: [.removal(transaction)]))

@@ -467,7 +467,7 @@ struct CashflowCardsView: View {
             mutationRow(
                 icon: "xmark.octagon.fill",
                 color: .red,
-                text: message ?? "הפעולה נכשלה"
+                text: message.isEmpty ? "הפעולה נכשלה" : message
             )
         case .success(let date):
             mutationRow(
