@@ -299,13 +299,6 @@ struct EditTransactionView: View {
         return "כרטיס \(method)"
     }
 
-    private func heroFlowMonthLine() -> String? {
-        let current = flowMonth.trimmingCharacters(in: .whitespacesAndNewlines)
-        let value = current.isEmpty ? resolvedFlowMonth(for: transaction) : current
-        guard !value.isEmpty else { return nil }
-        return "חודש תזרים \(value)"
-    }
-
     private func heroDateLine() -> String? {
         guard let date = transaction.parsedDate else { return nil }
         let formatter = DateFormatter()
@@ -326,20 +319,21 @@ struct EditTransactionView: View {
             return resolvedFlowMonth(for: transaction)
         }()
 
-        guard !raw.isEmpty else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
 
         let inFormatter = DateFormatter()
         inFormatter.dateFormat = "yyyy-MM"
         inFormatter.locale = Locale(identifier: "en_US_POSIX")
 
-        if let date = inFormatter.date(from: raw) {
+        if let date = inFormatter.date(from: trimmed) {
             let outFormatter = DateFormatter()
             outFormatter.locale = Locale(identifier: "he_IL")
             outFormatter.dateFormat = "M.yy"
             let formatted = outFormatter.string(from: date)
             return "חודש תזרים \(formatted)"
         } else {
-            return "חודש תזרים \(raw)"
+            return "חודש תזרים \(trimmed)"
         }
     }
 
