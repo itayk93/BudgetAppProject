@@ -22,6 +22,8 @@ struct EditTransactionView: View {
     @State private var isMovingFlowMonth = false
     @State private var showDeleteConfirmation = false
     @State private var isSaving = false
+    @State private var hasPendingChanges = false
+    @State private var didDelete = false
     @State private var errorMessage: String?
 
     @EnvironmentObject private var vm: CashFlowDashboardViewModel
@@ -100,6 +102,11 @@ struct EditTransactionView: View {
         .onChange(of: vm.errorMessage) { newValue, _ in
             if let newValue {
                 AppLogger.log("⚠️ VM error message: \(newValue)", force: true)
+            }
+        }
+        .onDisappear {
+            if hasPendingChanges && !didDelete {
+                saveTransaction()
             }
         }
     }
@@ -186,6 +193,7 @@ struct EditTransactionView: View {
 
     private func saveTransaction() {
         guard !isSaving else { return }
+        guard hasPendingChanges else { return }
 
         let trimmedCategory = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedCategory.isEmpty else {
@@ -194,6 +202,7 @@ struct EditTransactionView: View {
         }
 
         isSaving = true
+        hasPendingChanges = false
         errorMessage = nil
 
         let trimmedNotes = notes.isEmpty ? nil : notes
@@ -214,9 +223,16 @@ struct EditTransactionView: View {
                 onSave(updatedTransaction)
             } catch {
                 isSaving = false
+                hasPendingChanges = true
                 errorMessage = error.localizedDescription
             }
         }
+    }
+
+    private func selectCategory(_ category: String) {
+        selectedCategory = category
+        categoryName = category
+        dismissKeyboard()
     }
 
     private func applyCategoryChange(_ category: String? = nil) {
@@ -231,7 +247,7 @@ struct EditTransactionView: View {
         }
 
         dismissKeyboard()
-        saveTransaction()
+        hasPendingChanges = true
     }
 
     // MARK: - Hero helpers
@@ -342,10 +358,13 @@ struct EditTransactionView: View {
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .multilineTextAlignment(.trailing)
+                        .onChange(of: categorySearchText) { _, _ in
+                            hasPendingChanges = true
+                        }
 
                     ForEach(filteredCategories, id: \.self) { category in
                         Button {
-                            applyCategoryChange(category)
+                            selectCategory(category)
                         } label: {
                             HStack {
                                 Spacer()
@@ -357,10 +376,16 @@ struct EditTransactionView: View {
                         }
                         .buttonStyle(.plain)
                         .padding()
-                        .background(Color.white)
+                        .background(
+                            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                .fill(selectedCategory == category ? Color(UIColor.systemGray5) : Color.white)
+                        )
                         .overlay(
                             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(Color.gray.opacity(0.25), lineWidth: 1)
+                                .stroke(
+                                    selectedCategory == category ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.25),
+                                    lineWidth: 1
+                                )
                         )
                         .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
                     }
@@ -417,9 +442,12 @@ struct EditTransactionView: View {
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .multilineTextAlignment(.trailing)
+                        .onChange(of: notes) { _, _ in
+                            hasPendingChanges = true
+                        }
 
                     Button {
-                        saveTransaction()
+                        hasPendingChanges = true
                     } label: {
                         HStack {
                             if isSaving {
@@ -503,6 +531,9 @@ struct EditTransactionView: View {
                     )
                     .datePickerStyle(.wheel)
                     .labelsHidden()
+                    .onChange(of: moveFlowMonthDate) { _, _ in
+                        hasPendingChanges = true
+                    }
 
                     Text(formattedFlowMonth(from: moveFlowMonthDate))
                         .font(.subheadline.monospacedDigit())
@@ -522,7 +553,7 @@ struct EditTransactionView: View {
                         }
                         .font(.body.weight(.semibold))
                         .disabled(isMovingFlowMonth || isSaving)
-                    }
+                }
                 }
                 .padding(12)
                 .frame(maxWidth: .infinity)
@@ -607,12 +638,12 @@ struct EditTransactionView: View {
 
         let newValue = formattedFlowMonth(from: moveFlowMonthDate)
         flowMonth = newValue
+        hasPendingChanges = true
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             moveFlowMonthExpanded = false
         }
 
-        saveTransaction()
         isMovingFlowMonth = false
     }
 
@@ -687,6 +718,8 @@ struct EditTransactionView: View {
 
     private func deleteTransaction() {
         AppLogger.log("⚠️ Confirmation accepted; deleting tx \(transaction.id)", force: true)
+        didDelete = true
+        hasPendingChanges = false
         onDelete(transaction)
     }
 
