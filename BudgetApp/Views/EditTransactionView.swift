@@ -457,6 +457,9 @@ struct EditTransactionView: View {
 
                     Button {
                         hasPendingChanges = true
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                            noteExpanded = false
+                        }
                     } label: {
                         HStack {
                             if isSaving {
