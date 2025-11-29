@@ -214,6 +214,11 @@ final class CashFlowDashboardViewModel: ObservableObject {
     @Published var chartsLoadError: String?
     @Published var lastMutation: MutationStatus = .idle
     
+    /// All category names known from `category_order` (includes empty/non-cashflow categories).
+    var allCategoryOrderNames: [String] {
+        Array(categoryOrderMap.keys)
+    }
+    
     struct AccountSnapshot: Identifiable, Hashable {
         let id: String
         let accountName: String
@@ -878,6 +883,83 @@ final class CashFlowDashboardViewModel: ObservableObject {
         AppLogger.log("✅ [DELETE TX] Transaction \(transaction.id) deleted successfully", force: true)
     }
 
+    func updateTransaction(
+        _ transaction: Transaction,
+        categoryName: String?,
+        notes: String?,
+        flowMonth: String?
+    ) async throws -> Transaction {
+        let trimmedCategory = categoryName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedFlowMonth = flowMonth?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload = TransactionUpdatePayload(
+            category_name: trimmedCategory?.isEmpty == true ? nil : trimmedCategory,
+            notes: notes,
+            flow_month: trimmedFlowMonth?.isEmpty == true ? nil : trimmedFlowMonth
+        )
+
+        do {
+            AppLogger.log("ℹ️ [UPDATE TX] PATCH /transactions/\(transaction.id) body=\(String(describing: payload))", force: true)
+            _ = try await apiClient.send(
+                "transactions/\(transaction.id)",
+                method: "PATCH",
+                query: nil,
+                body: payload
+            ) as AppEmptyResponse
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            let is404 = message.contains("404") || message.lowercased().contains("not found")
+            let numericId = Int64(transaction.id) != nil
+            let isPending = transaction.status?.lowercased() == "pending"
+            AppLogger.log("❌ [UPDATE TX] Primary PATCH failed for \(transaction.id): \(message)", force: true)
+            if is404, (numericId || isPending) {
+                // Fallback for pending transactions that live only in Supabase
+                if let supabase = SupabaseTransactionsReviewService() {
+                    AppLogger.log("↩️ [UPDATE TX] Fallback to Supabase for id \(transaction.id)", force: true)
+                    if let flow = payload.flow_month {
+                        try await supabase.updateFlowMonth(transactionID: transaction.id, flowMonth: flow)
+                    }
+                    let targetCategory = payload.category_name ?? transaction.effectiveCategoryName
+                    try await supabase.updateCategory(transactionID: transaction.id, categoryName: targetCategory, note: notes)
+                } else {
+                    throw error
+                }
+            } else {
+                throw error
+            }
+        }
+
+        let effectiveCategory = payload.category_name ?? transaction.effectiveCategoryName
+        let updated = Transaction(
+            id: transaction.id,
+            effectiveCategoryName: effectiveCategory,
+            isIncome: transaction.isIncome,
+            business_name: transaction.business_name,
+            payment_method: transaction.payment_method,
+            createdAtDate: transaction.createdAtDate,
+            currency: transaction.currency,
+            absoluteAmount: transaction.absoluteAmount,
+            notes: notes ?? transaction.notes,
+            normalizedAmount: transaction.normalizedAmount,
+            excluded_from_flow: transaction.excluded_from_flow,
+            category_name: effectiveCategory,
+            category: transaction.category,
+            status: transaction.status,
+            user_id: transaction.user_id,
+            suppress_from_automation: transaction.suppress_from_automation,
+            manual_split_applied: transaction.manual_split_applied,
+            reviewed_at: transaction.reviewed_at,
+            source_type: transaction.source_type,
+            date: transaction.date,
+            payment_date: transaction.payment_date,
+            flow_month: payload.flow_month ?? transaction.flow_month
+        )
+
+        AppLogger.log("✅ [UPDATE TX] Local state updated for \(transaction.id) -> cat=\(effectiveCategory) flow_month=\(payload.flow_month ?? transaction.flow_month ?? "nil")", force: true)
+        mutateState(using: TransactionDiff(changes: [.update(old: transaction, new: updated)]))
+        AppLogger.log("✅ [UPDATE TX] Transaction \(transaction.id) updated: category=\(effectiveCategory)", force: true)
+        return updated
+    }
+
     // Exposed helpers used by view
     func isWeeklyCategory(_ name: String) -> Bool {
         // Use explicit weekly_display flag from category_order table
@@ -1363,5 +1445,30 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private static func numberOfWeeks(in date: Date, calendar: Calendar) -> Int {
         let range = calendar.range(of: .weekOfMonth, in: .month, for: date)
         return range?.count ?? 4
+    }
+}
+
+private struct TransactionUpdatePayload: Encodable {
+    let category_name: String?
+    let notes: String?
+    let flow_month: String?
+
+    enum CodingKeys: String, CodingKey {
+        case category_name
+        case notes
+        case flow_month
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let category_name {
+            try container.encode(category_name, forKey: .category_name)
+        }
+        if let notes {
+            try container.encode(notes, forKey: .notes)
+        }
+        if let flow_month {
+            try container.encode(flow_month, forKey: .flow_month)
+        }
     }
 }
