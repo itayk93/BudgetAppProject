@@ -63,11 +63,10 @@ struct EditTransactionView: View {
                 bottomSheet
                     .frame(maxWidth: .infinity, alignment: .bottom)
                     .frame(maxHeight: proxy.size.height * 0.8, alignment: .bottom) // היה 0.7
-                    .simultaneousGesture(
-                        TapGesture().onEnded {
-                            dismissKeyboard()
-                        }
-                    )
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissKeyboard()
+                    }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -220,15 +219,18 @@ struct EditTransactionView: View {
         }
     }
 
-    private func applyCategoryChange() {
+    private func applyCategoryChange(_ category: String? = nil) {
         let trimmedSearch = categorySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
-        let newCategory = selectedCategory ?? (!trimmedSearch.isEmpty ? trimmedSearch : categoryName)
+        let chosen = category ?? selectedCategory
+        let newCategory = chosen ?? (!trimmedSearch.isEmpty ? trimmedSearch : categoryName)
         categoryName = newCategory
+        selectedCategory = newCategory
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             showCategorySelector = false
         }
 
+        dismissKeyboard()
         saveTransaction()
     }
 
@@ -343,9 +345,7 @@ struct EditTransactionView: View {
 
                     ForEach(filteredCategories, id: \.self) { category in
                         Button {
-                            selectedCategory = category
-                            categoryName = category
-                            dismissKeyboard()
+                            applyCategoryChange(category)
                         } label: {
                             HStack {
                                 Spacer()
