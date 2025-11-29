@@ -12,13 +12,14 @@ struct PendingTransactionNotesService {
         note: String?,
         completion: @escaping (Result<Void, Error>) -> Void
     ) {
+        let table = tableName(for: transactionID)
         guard let creds = SupabaseCredentials.current() else {
             completion(.failure(PendingNotesError.missingCredentials))
             return
         }
 
         var components = URLComponents(
-            url: creds.restURL.appendingPathComponent("bank_scraper_pending_transactions"),
+            url: creds.restURL.appendingPathComponent(table),
             resolvingAgainstBaseURL: false
         )
         components?.queryItems = [
@@ -38,7 +39,7 @@ struct PendingTransactionNotesService {
             payload["notes"] = NSNull()
         }
 
-        AppLogger.log("[NOTES] updateNote tx=\(transactionID) payload=\(payload)")
+        AppLogger.log("[NOTES] updateNote tx=\(transactionID) table=\(table) payload=\(payload)")
 
         let body: Data
         do {
@@ -74,6 +75,11 @@ struct PendingTransactionNotesService {
         }
 
         task.resume()
+    }
+
+    private static func tableName(for transactionID: String) -> String {
+        let trimmed = transactionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Int64(trimmed) != nil ? "bank_scraper_pending_transactions" : "transactions"
     }
 
     static func updateNoteAsync(

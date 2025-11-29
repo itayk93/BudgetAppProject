@@ -244,8 +244,9 @@ final class SupabaseTransactionsReviewService {
         let body = try encoder.encode(payload)
         for id in transactionIDs {
             let query = [URLQueryItem(name: "id", value: "eq.\(id)")]
+            let table = tableName(for: id)
             _ = try await request(
-                path: "bank_scraper_pending_transactions",
+                path: table,
                 method: "PATCH",
                 queryItems: query,
                 body: body,
@@ -311,8 +312,9 @@ final class SupabaseTransactionsReviewService {
         let query = [URLQueryItem(name: "id", value: "eq.\(transactionID)")]
 
         AppLogger.log("[DEBUG] sending PATCH for tx \(transactionID)")
+        let table = tableName(for: transactionID)
         _ = try await request(
-            path: "bank_scraper_pending_transactions",
+            path: table,
             method: "PATCH",
             queryItems: query,
             body: body,
@@ -365,6 +367,10 @@ final class SupabaseTransactionsReviewService {
     }
 
     // MARK: - Private helpers
+    private func tableName(for transactionID: String) -> String {
+        let trimmed = transactionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Int64(trimmed) != nil ? "bank_scraper_pending_transactions" : "transactions"
+    }
 
     private func update(
         transactionID: String,
@@ -384,8 +390,14 @@ final class SupabaseTransactionsReviewService {
         let encoder = JSONEncoder()
         let body = try encoder.encode(payload)
         let query = [URLQueryItem(name: "id", value: "eq.\(transactionID)")]
-        // Update the correct table - should be the same as the fetch table
-        _ = try await request(path: "bank_scraper_pending_transactions", method: "PATCH", queryItems: query, body: body, prefer: "return=minimal")
+        let table = tableName(for: transactionID)
+        _ = try await request(
+            path: table,
+            method: "PATCH",
+            queryItems: query,
+            body: body,
+            prefer: "return=minimal"
+        )
     }
 
     private func sanitize(_ note: String?) -> String? {
@@ -409,13 +421,8 @@ final class SupabaseTransactionsReviewService {
         let encoder = JSONEncoder()
         let body = try encoder.encode(payload)
         let query = [URLQueryItem(name: "id", value: "eq.\(transactionID)")]
-        _ = try await request(
-            path: "bank_scraper_pending_transactions",
-            method: "PATCH",
-            queryItems: query,
-            body: body,
-            prefer: "return=minimal"
-        )
+        let table = tableName(for: transactionID)
+        _ = try await request(path: table, method: "PATCH", queryItems: query, body: body, prefer: "return=minimal")
     }
 
     private func filterAutomatedTransactions(_ rows: [Transaction]) -> [Transaction] {
