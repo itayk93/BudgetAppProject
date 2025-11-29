@@ -137,7 +137,7 @@ struct EditTransactionView: View {
                 .padding(.top, 8)
 
             VStack(alignment: .trailing, spacing: 8) {
-                Text(transaction.effectiveCategoryName)
+                Text(displayCategoryName)
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white.opacity(0.92))
                     .frame(maxWidth: .infinity, alignment: .trailing)
@@ -252,6 +252,14 @@ struct EditTransactionView: View {
 
     // MARK: - Hero helpers
 
+    private var displayCategoryName: String {
+        let selected = selectedCategory?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !selected.isEmpty { return selected }
+        let typed = categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !typed.isEmpty { return typed }
+        return transaction.effectiveCategoryName
+    }
+
     private func heroAmountText(_ value: Double) -> String {
         let formatter = NumberFormatter()
         formatter.locale = Locale(identifier: "he_IL")
@@ -289,6 +297,13 @@ struct EditTransactionView: View {
         let method = transaction.payment_method?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let method, !method.isEmpty else { return nil }
         return "כרטיס \(method)"
+    }
+
+    private func heroFlowMonthLine() -> String? {
+        let current = flowMonth.trimmingCharacters(in: .whitespacesAndNewlines)
+        let value = current.isEmpty ? resolvedFlowMonth(for: transaction) : current
+        guard !value.isEmpty else { return nil }
+        return "חודש תזרים \(value)"
     }
 
     private func heroDateLine() -> String? {
