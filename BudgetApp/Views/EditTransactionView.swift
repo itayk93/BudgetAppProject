@@ -763,10 +763,11 @@ struct EditTransactionView: View {
 
     private func scheduleAutoSave() {
         autoSaveTask?.cancel()
-        autoSaveTask = Task { [weak self] in
+        autoSaveTask = Task {
             try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
+            guard !Task.isCancelled else { return }
             await MainActor.run {
-                self?.saveTransaction()
+                saveTransaction()
             }
         }
     }
