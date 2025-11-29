@@ -55,10 +55,19 @@ struct EditTransactionView: View {
             ZStack(alignment: .bottom) {
                 Color.clear
                     .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        dismissKeyboard()
+                    }
 
                 bottomSheet
                     .frame(maxWidth: .infinity, alignment: .bottom)
                     .frame(maxHeight: proxy.size.height * 0.8, alignment: .bottom) // היה 0.7
+                    .simultaneousGesture(
+                        TapGesture().onEnded {
+                            dismissKeyboard()
+                        }
+                    )
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -106,6 +115,7 @@ struct EditTransactionView: View {
                 actionsSection
                     .padding(.bottom, 16)
             }
+            .scrollDismissesKeyboard(.interactively)
         }
         .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
@@ -335,6 +345,7 @@ struct EditTransactionView: View {
                         Button {
                             selectedCategory = category
                             categoryName = category
+                            dismissKeyboard()
                         } label: {
                             HStack {
                                 Spacer()
@@ -691,6 +702,10 @@ struct EditTransactionView: View {
         .padding(.horizontal, 16)
         .background(Color.black.opacity(0.8))
         .clipShape(Capsule())
+    }
+
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
     }
 }
 
