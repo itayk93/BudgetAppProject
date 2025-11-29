@@ -24,6 +24,7 @@ struct EditTransactionView: View {
     @State private var isSaving = false
     @State private var hasPendingChanges = false
     @State private var didDelete = false
+    @State private var autoSaveTask: Task<Void, Never>?
     @State private var errorMessage: String?
 
     @EnvironmentObject private var vm: CashFlowDashboardViewModel
@@ -108,6 +109,7 @@ struct EditTransactionView: View {
             if hasPendingChanges && !didDelete {
                 saveTransaction()
             }
+            autoSaveTask?.cancel()
         }
     }
 
@@ -203,6 +205,7 @@ struct EditTransactionView: View {
 
         isSaving = true
         hasPendingChanges = false
+        autoSaveTask?.cancel()
         errorMessage = nil
 
         let trimmedNotes = notes.isEmpty ? nil : notes
@@ -233,6 +236,8 @@ struct EditTransactionView: View {
         selectedCategory = category
         categoryName = category
         dismissKeyboard()
+        hasPendingChanges = true
+        scheduleAutoSave()
     }
 
     private func applyCategoryChange(_ category: String? = nil) {
@@ -248,6 +253,7 @@ struct EditTransactionView: View {
 
         dismissKeyboard()
         hasPendingChanges = true
+        scheduleAutoSave()
     }
 
     // MARK: - Hero helpers
@@ -367,9 +373,6 @@ struct EditTransactionView: View {
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
                         .multilineTextAlignment(.trailing)
-                        .onChange(of: categorySearchText) { _, _ in
-                            hasPendingChanges = true
-                        }
 
                     ForEach(filteredCategories, id: \.self) { category in
                         Button {
@@ -453,10 +456,12 @@ struct EditTransactionView: View {
                         .multilineTextAlignment(.trailing)
                         .onChange(of: notes) { _, _ in
                             hasPendingChanges = true
+                            scheduleAutoSave()
                         }
 
                     Button {
                         hasPendingChanges = true
+                        scheduleAutoSave()
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                             noteExpanded = false
                         }
@@ -545,6 +550,7 @@ struct EditTransactionView: View {
                     .labelsHidden()
                     .onChange(of: moveFlowMonthDate) { _, _ in
                         hasPendingChanges = true
+                        scheduleAutoSave()
                     }
 
                     Text(formattedFlowMonth(from: moveFlowMonthDate))
@@ -651,6 +657,7 @@ struct EditTransactionView: View {
         let newValue = formattedFlowMonth(from: moveFlowMonthDate)
         flowMonth = newValue
         hasPendingChanges = true
+        scheduleAutoSave()
 
         withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
             moveFlowMonthExpanded = false
@@ -732,6 +739,7 @@ struct EditTransactionView: View {
         AppLogger.log("⚠️ Confirmation accepted; deleting tx \(transaction.id)", force: true)
         didDelete = true
         hasPendingChanges = false
+        autoSaveTask?.cancel()
         onDelete(transaction)
     }
 
@@ -751,6 +759,16 @@ struct EditTransactionView: View {
 
     private func dismissKeyboard() {
         UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder), to: nil, from: nil, for: nil)
+    }
+
+    private func scheduleAutoSave() {
+        autoSaveTask?.cancel()
+        autoSaveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 1_000_000_000) // 1s debounce
+            await MainActor.run {
+                self?.saveTransaction()
+            }
+        }
     }
 }
 
