@@ -552,6 +552,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         defer { isLoadingCurrentMonth = false }
 
         let interval = monthInterval(for: currentMonthDate)
+        transactionStore.hydrateFromDisk(scope: scope, monthKeys: [currentMonthKey])
         metrics.servedFromCache = transactionStore.hasMonths(scope: scope, monthKeys: [currentMonthKey])
 
         do {
@@ -608,6 +609,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         let (start, end) = dateRange(for: timeRange)
         let interval = DateInterval(start: start, end: end)
         let requestedMonthKeys = monthKeys(in: interval)
+        transactionStore.hydrateFromDisk(scope: scope, monthKeys: requestedMonthKeys)
         chartMonthKeys = requestedMonthKeys
         metrics.servedFromCache = transactionStore.hasMonths(scope: scope, monthKeys: requestedMonthKeys)
 
