@@ -142,6 +142,15 @@ final class AppAPIClient {
         try await send(path, method: "PATCH", query: nil, body: body)
     }
 
+    /// Fetch raw response data and include payload size (for diagnostics)
+    func getRawWithMetadata(
+        _ path: String,
+        query: [URLQueryItem] = []
+    ) async throws -> (data: Data, payloadBytes: Int) {
+        let data = try await requestRaw(path, method: "GET", query: query, body: Optional<Data>.none)
+        return (data, data.count)
+    }
+
     // Encodable existential helper
     private struct AnyEncodable: Encodable {
         private let encodeFunc: (Encoder) throws -> Void

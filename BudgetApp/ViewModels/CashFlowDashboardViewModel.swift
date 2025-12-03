@@ -642,12 +642,13 @@ final class CashFlowDashboardViewModel: ObservableObject {
         do {
             var totalDuration: TimeInterval = 0
             var fetchedTransactions = 0
+            var totalPayloadBytes = 0
             for key in keysToFetch {
                 let parts = key.split(separator: "-")
                 guard parts.count == 2, let year = Int(parts[0]), let month = Int(parts[1]) else { continue }
 
                 let fetchStart = Date()
-                let data = try await dashboardService.fetchDashboard(
+                let (data, payloadBytes) = try await dashboardService.fetchDashboardWithMetadata(
                     year: year,
                     month: month,
                     cashFlowId: cashFlow.id,
@@ -656,6 +657,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 totalDuration += Date().timeIntervalSince(fetchStart)
                 aggregateMap[key] = data
                 fetchedTransactions += data.transaction_count ?? 0
+                totalPayloadBytes += payloadBytes
             }
             chartAggregatesCache[scope] = aggregateMap
 
@@ -663,6 +665,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 metrics.networkDuration = totalDuration
                 metrics.transactionCount = fetchedTransactions
                 metrics.servedFromCache = false
+                metrics.payloadBytes = totalPayloadBytes
             } else {
                 metrics.servedFromCache = true
                 metrics.transactionCount = aggregateMap.values.reduce(0) { $0 + ($1.transaction_count ?? 0) }

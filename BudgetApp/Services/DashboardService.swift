@@ -107,9 +107,24 @@ struct DashboardMonthlyGoal: Codable {
 
 final class DashboardService {
     private let apiClient: AppAPIClient
-    init(apiClient: AppAPIClient) { self.apiClient = apiClient }
+    private let decoder: JSONDecoder
+    init(apiClient: AppAPIClient) {
+        self.apiClient = apiClient
+        self.decoder = JSONDecoder()
+        self.decoder.keyDecodingStrategy = .useDefaultKeys
+    }
 
     func fetchDashboard(year: Int, month: Int, cashFlowId: String, allTime: Bool) async throws -> DashboardData {
+        let (data, _) = try await fetchDashboardWithMetadata(year: year, month: month, cashFlowId: cashFlowId, allTime: allTime)
+        return data
+    }
+
+    func fetchDashboardWithMetadata(
+        year: Int,
+        month: Int,
+        cashFlowId: String,
+        allTime: Bool
+    ) async throws -> (data: DashboardData, payloadBytes: Int) {
         let queryItems = [
             URLQueryItem(name: "year", value: String(year)),
             URLQueryItem(name: "month", value: String(month)),
@@ -117,6 +132,8 @@ final class DashboardService {
             URLQueryItem(name: "all_time", value: allTime ? "1" : "0"),
             URLQueryItem(name: "format", value: "json")
         ]
-        return try await apiClient.get("dashboard", query: queryItems)
+        let (raw, size) = try await apiClient.getRawWithMetadata("dashboard", query: queryItems)
+        let decoded = try decoder.decode(DashboardData.self, from: raw)
+        return (decoded, size)
     }
 }
