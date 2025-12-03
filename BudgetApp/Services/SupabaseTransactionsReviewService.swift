@@ -205,7 +205,7 @@ final class SupabaseTransactionsReviewService {
     func fetchReviewedTransactions(
         for userID: String,
         businessName searchTerm: String?,
-        limit: Int = 200
+        limit: Int = 1_000_000
     ) async throws -> [Transaction] {
         AppLogger.log("🔍 [DEBUG] Fetching reviewed transactions for user_id: \(userID)")
         var query: [URLQueryItem] = [
@@ -224,10 +224,22 @@ final class SupabaseTransactionsReviewService {
 
         AppLogger.log("🔍 [DEBUG] Fetching with query: \(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: ", "))")
 
-        let data = try await request(path: "bank_scraper_pending_transactions", queryItems: query)
-        let rows = try decoder.decode([Transaction].self, from: data)
-        AppLogger.log("🔍 [DEBUG] Raw decode returned \(rows.count) reviewed transactions")
-        return filterAutomatedTransactions(rows)
+        let pendingData = try await request(path: "bank_scraper_pending_transactions", queryItems: query)
+        let pendingRows = try decoder.decode([Transaction].self, from: pendingData)
+        AppLogger.log("🔍 [DEBUG] Raw decode returned \(pendingRows.count) reviewed transactions from 'bank_scraper_pending_transactions'")
+
+        var combinedRows = pendingRows
+        do {
+            let transactionsData = try await request(path: "transactions", queryItems: query)
+            let transactionsRows = try decoder.decode([Transaction].self, from: transactionsData)
+            AppLogger.log("🔍 [DEBUG] Also fetched \(transactionsRows.count) rows from 'transactions' table")
+            combinedRows.append(contentsOf: transactionsRows)
+        } catch {
+            AppLogger.log("⚠️ [DEBUG] Failed to fetch reviewed rows from 'transactions' table: \(error.localizedDescription)")
+        }
+
+        let filtered = filterAutomatedTransactions(combinedRows)
+        return filtered.sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
     }
 
     func revertTransactionsToPending(transactionIDs: [String]) async throws {

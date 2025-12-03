@@ -8,7 +8,7 @@ struct PendingTransactionsReviewView: View {
     @State private var heroNoteExpanded = false
     @State private var heroNoteText = ""
     @State private var moveFlowMonthExpanded = false
-    @State private var moveFlowMonthText = ""
+    @State private var moveFlowMonthDate = Date()
     @State private var moveFlowMonthError: String?
     @State private var isMovingFlowMonth = false
     @State private var toastMessage: String?
@@ -371,7 +371,7 @@ struct PendingTransactionsReviewView: View {
                     if moveFlowMonthExpanded {
                         moveFlowMonthExpanded = false
                     } else {
-                        moveFlowMonthText = resolvedFlowMonth(for: transaction)
+                        moveFlowMonthDate = flowMonthDate(for: transaction)
                         moveFlowMonthError = nil
                         moveFlowMonthExpanded = true
                     }
@@ -379,26 +379,22 @@ struct PendingTransactionsReviewView: View {
             }
 
             if moveFlowMonthExpanded {
-                VStack(alignment: .trailing, spacing: 10) {
+                VStack(alignment: .trailing, spacing: 12) {
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text("חודש תזרים חדש (yyyy-MM)")
+                        Text("חודש תזרים")
                             .font(.footnote.weight(.semibold))
                             .foregroundColor(.secondary)
-                        TextField("2025-11", text: $moveFlowMonthText)
-                            .textInputAutocapitalization(.never)
-                            .disableAutocorrection(true)
-                            .keyboardType(.numbersAndPunctuation)
-                            .multilineTextAlignment(.trailing)
-                            .font(.title3.monospacedDigit())
-                            .padding(10)
-                            .background(Color(UIColor.systemGray6))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .onChange(of: moveFlowMonthText) { newValue, _ in
-                                let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(newValue)
-                                if sanitized != newValue {
-                                    moveFlowMonthText = sanitized
-                                }
-                            }
+                        DatePicker(
+                            "",
+                            selection: $moveFlowMonthDate,
+                            displayedComponents: [.date]
+                        )
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .clipped()
+                        Text(formattedFlowMonth(from: moveFlowMonthDate))
+                            .font(.subheadline.monospacedDigit())
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     if let error = moveFlowMonthError {
                         Text(error)
@@ -435,10 +431,8 @@ struct PendingTransactionsReviewView: View {
                             .foregroundColor(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
-                        .disabled(
-                            !FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) || isMovingFlowMonth
-                        )
-                        .opacity(!FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) || isMovingFlowMonth ? 0.6 : 1)
+                        .disabled(isMovingFlowMonth)
+                        .opacity(isMovingFlowMonth ? 0.6 : 1)
                     }
                 }
                 .padding(10)
@@ -463,15 +457,12 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func submitMoveFlowMonth(_ transaction: Transaction) {
-        guard FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) else {
-            moveFlowMonthError = "הזן חודש תזרים תקין בפורמט yyyy-MM"
-            return
-        }
+        let targetMonth = formattedFlowMonth(from: moveFlowMonthDate)
         moveFlowMonthError = nil
         isMovingFlowMonth = true
         Task {
             do {
-                try await viewModel.move(transaction, toFlowMonth: moveFlowMonthText)
+                try await viewModel.move(transaction, toFlowMonth: targetMonth)
                 await MainActor.run {
                     isMovingFlowMonth = false
                     moveFlowMonthExpanded = false
@@ -486,10 +477,27 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func displayedFlowMonth(for transaction: Transaction) -> String {
-        if moveFlowMonthExpanded && FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) {
-            return moveFlowMonthText
+        if moveFlowMonthExpanded {
+            return formattedFlowMonth(from: moveFlowMonthDate)
         }
         return resolvedFlowMonth(for: transaction)
+    }
+
+    private func flowMonthDate(for transaction: Transaction) -> Date {
+        if let raw = transaction.flow_month,
+           let date = FlowMonthInputValidator.monthFormatter.date(from: raw) {
+            return date
+        }
+        if let parsed = transaction.parsedDate {
+            let formatted = FlowMonthInputValidator.monthFormatter.string(from: parsed)
+            return FlowMonthInputValidator.monthFormatter.date(from: formatted) ?? parsed
+        }
+        let formatted = FlowMonthInputValidator.monthFormatter.string(from: Date())
+        return FlowMonthInputValidator.monthFormatter.date(from: formatted) ?? Date()
+    }
+
+    private func formattedFlowMonth(from date: Date) -> String {
+        FlowMonthInputValidator.monthFormatter.string(from: date)
     }
 
     private func heroFooter(for transaction: Transaction) -> some View {

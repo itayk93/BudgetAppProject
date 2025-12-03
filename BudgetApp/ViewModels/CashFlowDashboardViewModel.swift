@@ -557,7 +557,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
         do {
             if !metrics.servedFromCache {
-                let perPage = max(250, min(5000, requestedMonthKeys.count * 300))
+                let perPage = max(250, min(1_000_000, requestedMonthKeys.count * 300))
                 let (txs, duration) = try await fetchTransactions(
                     cashFlowID: cashFlow.id,
                     startDate: interval.start,

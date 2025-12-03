@@ -201,7 +201,7 @@ extension AppAPIClient {
     func fetchTransactions(
         cashFlowID: String,
         showAll: Bool = true,
-        perPage: Int = 1000,
+        perPage: Int = 1_000_000,
         startDate: Date? = nil,
         endDate: Date? = nil
     ) async throws -> [Transaction] {
@@ -230,7 +230,7 @@ extension AppAPIClient {
             URLQueryItem(name: "cash_flow_id", value: cashFlowID),
             URLQueryItem(name: "status", value: "pending"),
             URLQueryItem(name: "pending_only", value: "true"), // Add this parameter
-            URLQueryItem(name: "per_page", value: "5000") // Assuming a high limit for pending
+            URLQueryItem(name: "per_page", value: "1000000") // Assuming a high limit for pending
         ]
         
         if let startDate {
