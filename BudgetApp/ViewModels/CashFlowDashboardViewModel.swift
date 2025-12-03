@@ -1360,12 +1360,6 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private func buildCardsForCurrentMonth(all: [Transaction],
                                            emptyCategories: [UserEmptyCategoryDisplay]) {
 
-        let buildStart = Date()
-        defer {
-            let duration = Date().timeIntervalSince(buildStart)
-            AppLogger.log("🧮 [CARDS BUILD] Processed \(all.count) txs (\(monthTx.count) in current month) in \(String(format: "%.2f", duration))s")
-        }
-
         var monthTx = all.filter { isTransactionInCurrentMonth($0) }
 
         if monthTx.isEmpty {
@@ -1391,6 +1385,12 @@ final class CashFlowDashboardViewModel: ObservableObject {
         }
 
         // --- New List Building Logic ---
+
+        let buildStart = Date()
+        defer {
+            let duration = Date().timeIntervalSince(buildStart)
+            AppLogger.log("🧮 [CARDS BUILD] Processed \(all.count) txs (\(monthTx.count) in current month) in \(String(format: "%.2f", duration))s")
+        }
 
         // Temporary structure to hold items with their sort order.
         struct DisplayableItem {
