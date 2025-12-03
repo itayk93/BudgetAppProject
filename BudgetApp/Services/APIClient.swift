@@ -160,8 +160,19 @@ extension AppAPIClient {
     /// Flexible decoder for /transactions:
     /// - Supports either a bare array `[Transaction]` OR a wrapped object `{ transactions: [...]} / { data: [...] }`
     func fetchTransactionsFlexible(query: [URLQueryItem]) async throws -> [Transaction] {
-        let data = try await requestRaw("transactions", method: "GET", query: query, body: Optional<Data>.none)
+        try await fetchTransactionsFlexibleWithMetadata(query: query).transactions
+    }
 
+    /// Returns the decoded transactions plus the raw payload size for diagnostics.
+    func fetchTransactionsFlexibleWithMetadata(
+        query: [URLQueryItem]
+    ) async throws -> (transactions: [Transaction], payloadBytes: Int) {
+        let data = try await requestRaw("transactions", method: "GET", query: query, body: Optional<Data>.none)
+        let transactions = try decodeTransactionsPayload(data)
+        return (transactions, data.count)
+    }
+
+    private func decodeTransactionsPayload(_ data: Data) throws -> [Transaction] {
         // Try bare array first
         if let arr = try? decoder.decode([Transaction].self, from: data) {
             AppLogger.log("✅ [TRANSACTIONS] Decoded bare array successfully: \(arr.count) transactions")
@@ -187,7 +198,6 @@ extension AppAPIClient {
         let tempDecoder = JSONDecoder()
         tempDecoder.keyDecodingStrategy = .useDefaultKeys
 
-        // This will now go through the same decoding process as the main API client
         do {
             _ = try tempDecoder.decode([Transaction].self, from: data)
         } catch let decodingError {

@@ -11,6 +11,8 @@ fileprivate struct PartialLoadMetrics: Sendable {
     var networkDuration: TimeInterval = 0
     var buildDuration: TimeInterval = 0
     var servedFromCache: Bool = false
+    var payloadBytes: Int = 0
+    var transactionCount: Int = 0
 }
 
 @MainActor
@@ -141,6 +143,10 @@ final class CashFlowDashboardViewModel: ObservableObject {
         var chartBuildDuration: TimeInterval = 0
         var lastUpdated: Date?
         var usedCache: Bool = false
+        var cardsPayloadBytes: Int = 0
+        var chartsPayloadBytes: Int = 0
+        var cardsTransactionCount: Int = 0
+        var chartsTransactionCount: Int = 0
     }
 
     struct TransactionDiff {
@@ -213,6 +219,9 @@ final class CashFlowDashboardViewModel: ObservableObject {
     @Published var cardsLoadError: String?
     @Published var chartsLoadError: String?
     @Published var lastMutation: MutationStatus = .idle
+
+    private var isRefreshInProgress = false
+    private var lastRefreshCompletionDate: Date?
     
     /// All category names known from `category_order` (includes empty/non-cashflow categories).
     var allCategoryOrderNames: [String] {
@@ -417,11 +426,29 @@ final class CashFlowDashboardViewModel: ObservableObject {
     }
 
     /// Refresh both multi-month charts and single-month cards
-    func refreshData() async {
+    func refreshData(force: Bool = false) async {
         AppLogger.log("🔍 [REFRESH DATA] selectedCashFlow is: \(selectedCashFlow?.name ?? "NIL")")
+        if isRefreshInProgress && !force {
+            AppLogger.log("🔄 [REFRESH DATA] Request already in progress; skipping duplicate.")
+            return
+        }
         guard let cf = selectedCashFlow else {
             AppLogger.log("❌ [REFRESH DATA] No cash flow selected!")
             errorMessage = "No cash flow selected."
+            return
+        }
+
+        guard let scope = currentScope else {
+            AppLogger.log("❌ [REFRESH DATA] Unable to resolve current scope.")
+            errorMessage = "No cash flow scope available."
+            return
+        }
+
+        let (start, end) = dateRange(for: timeRange)
+        let requestedMonthKeys = monthKeys(in: DateInterval(start: start, end: end))
+
+        if !force, shouldSkipRefresh(scope: scope, chartKeys: requestedMonthKeys) {
+            AppLogger.log("⏭️ [REFRESH DATA] Skipped because recent refresh already populated \(requestedMonthKeys.count) months.", force: true)
             return
         }
 
@@ -429,6 +456,12 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
         loading = true
         errorMessage = nil
+        isRefreshInProgress = true
+        defer {
+            isRefreshInProgress = false
+            loading = false
+            lastRefreshCompletionDate = Date()
+        }
 
         let refreshStart = Date()
         var cardsMetrics = PartialLoadMetrics()
@@ -463,12 +496,15 @@ final class CashFlowDashboardViewModel: ObservableObject {
             cardBuildDuration: cardsMetrics.buildDuration,
             chartBuildDuration: chartsMetrics.buildDuration,
             lastUpdated: Date(),
-            usedCache: cardsMetrics.servedFromCache && chartsMetrics.servedFromCache
+            usedCache: cardsMetrics.servedFromCache && chartsMetrics.servedFromCache,
+            cardsPayloadBytes: cardsMetrics.payloadBytes,
+            chartsPayloadBytes: chartsMetrics.payloadBytes,
+            cardsTransactionCount: cardsMetrics.transactionCount,
+            chartsTransactionCount: chartsMetrics.transactionCount
         )
         lastCardsServedFromCache = cardsMetrics.servedFromCache
         lastChartsServedFromCache = chartsMetrics.servedFromCache
         isCachingTransactions = lastCardsServedFromCache && lastChartsServedFromCache
-        loading = false
     }
 
     func refreshCardsOnly() async {
@@ -489,6 +525,24 @@ final class CashFlowDashboardViewModel: ObservableObject {
         }
     }
 
+    private func shouldSkipRefresh(scope: CashFlowTransactionStore.ScopeKey, chartKeys: [String]) -> Bool {
+        guard let last = lastRefreshCompletionDate,
+              Date().timeIntervalSince(last) < 1.0 else {
+            return false
+        }
+        return hasCachedMonths(scope: scope, chartKeys: chartKeys)
+    }
+
+    private func hasCachedMonths(scope: CashFlowTransactionStore.ScopeKey, chartKeys: [String]) -> Bool {
+        guard transactionStore.hasMonths(scope: scope, monthKeys: [currentMonthKey]) else {
+            return false
+        }
+        guard !chartKeys.isEmpty else {
+            return true
+        }
+        return transactionStore.hasMonths(scope: scope, monthKeys: chartKeys)
+    }
+
     private func loadCurrentMonthOnly(for cashFlow: CashFlow) async -> PartialLoadMetrics {
         var metrics = PartialLoadMetrics()
         guard let scope = currentScope else { return metrics }
@@ -502,14 +556,16 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
         do {
             if !metrics.servedFromCache {
-                let (txs, duration) = try await fetchTransactions(
+                let result = try await fetchTransactions(
                     cashFlowID: cashFlow.id,
                     startDate: interval.start,
                     endDate: interval.end,
                     perPage: 750
                 )
-                metrics.networkDuration = duration
-                transactionStore.cache(txs, scope: scope)
+                metrics.networkDuration = result.duration
+                metrics.payloadBytes = result.payloadBytes
+                metrics.transactionCount = result.transactions.count
+                transactionStore.cache(result.transactions, scope: scope)
             }
             transactionStore.mark(scope: scope, monthKeys: [currentMonthKey])
 
@@ -535,7 +591,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         }
 
         AppLogger.log(
-            "⏱️ [CARDS LOAD] network=\(String(format: "%.2f", metrics.networkDuration)) build=\(String(format: "%.2f", metrics.buildDuration)) cache=\(metrics.servedFromCache)",
+            "⏱️ [CARDS LOAD] network=\(String(format: "%.2f", metrics.networkDuration)) build=\(String(format: "%.2f", metrics.buildDuration)) cache=\(metrics.servedFromCache) txs=\(metrics.transactionCount) bytes=\(metrics.payloadBytes)",
             force: true
         )
         return metrics
@@ -558,14 +614,16 @@ final class CashFlowDashboardViewModel: ObservableObject {
         do {
             if !metrics.servedFromCache {
                 let perPage = max(250, min(1_000_000, requestedMonthKeys.count * 300))
-                let (txs, duration) = try await fetchTransactions(
+                let result = try await fetchTransactions(
                     cashFlowID: cashFlow.id,
                     startDate: interval.start,
                     endDate: interval.end,
                     perPage: perPage
                 )
-                metrics.networkDuration = duration
-                transactionStore.cache(txs, scope: scope)
+                metrics.networkDuration = result.duration
+                metrics.payloadBytes = result.payloadBytes
+                metrics.transactionCount = result.transactions.count
+                transactionStore.cache(result.transactions, scope: scope)
             }
             transactionStore.mark(scope: scope, monthKeys: requestedMonthKeys)
 
@@ -582,10 +640,16 @@ final class CashFlowDashboardViewModel: ObservableObject {
         }
 
         AppLogger.log(
-            "⏱️ [CHARTS LOAD] network=\(String(format: "%.2f", metrics.networkDuration)) build=\(String(format: "%.2f", metrics.buildDuration)) cache=\(metrics.servedFromCache)",
+            "⏱️ [CHARTS LOAD] network=\(String(format: "%.2f", metrics.networkDuration)) build=\(String(format: "%.2f", metrics.buildDuration)) cache=\(metrics.servedFromCache) txs=\(metrics.transactionCount) bytes=\(metrics.payloadBytes)",
             force: true
         )
         return metrics
+    }
+
+    private struct FetchTransactionsResult {
+        let transactions: [Transaction]
+        let duration: TimeInterval
+        let payloadBytes: Int
     }
 
     private func fetchTransactions(
@@ -593,7 +657,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         startDate: Date,
         endDate: Date,
         perPage: Int
-    ) async throws -> ([Transaction], TimeInterval) {
+    ) async throws -> FetchTransactionsResult {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         var query: [URLQueryItem] = [
@@ -606,13 +670,13 @@ final class CashFlowDashboardViewModel: ObservableObject {
         query.append(URLQueryItem(name: "sort", value: "payment_date"))
 
         let networkStart = Date()
-        let txs = try await apiClient.fetchTransactionsFlexible(query: query)
+        let (txs, payloadBytes) = try await apiClient.fetchTransactionsFlexibleWithMetadata(query: query)
         let duration = Date().timeIntervalSince(networkStart)
         AppLogger.log(
-            "📦 [FETCH TX] cashFlow=\(cashFlowID) count=\(txs.count) per_page=\(perPage) duration=\(String(format: "%.2f", duration))s",
+            "📦 [FETCH TX] cashFlow=\(cashFlowID) count=\(txs.count) per_page=\(perPage) bytes=\(payloadBytes) duration=\(String(format: "%.2f", duration))s",
             force: true
         )
-        return (txs, duration)
+        return .init(transactions: txs, duration: duration, payloadBytes: payloadBytes)
     }
 
     private func fetchEmptyCategoriesIfNeeded(
@@ -1001,6 +1065,12 @@ final class CashFlowDashboardViewModel: ObservableObject {
                              goals: [MonthlyGoal],
                              emptyCategories: [UserEmptyCategoryDisplay]) {
 
+        let buildStart = Date()
+        defer {
+            let duration = Date().timeIntervalSince(buildStart)
+            AppLogger.log("📈 [CHARTS BUILD] Built charts from \(txs.count) txs + \(goals.count) goals in \(String(format: "%.2f", duration))s")
+        }
+
         var monthly: [String: (income: Double, expenses: Double)] = [:]
         var categoryAgg: [String: Double] = [:]
         let goalsMap = Dictionary(uniqueKeysWithValues: goals.map { ($0.monthKey, $0.targetAmount) })
@@ -1221,6 +1291,12 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     private func buildCardsForCurrentMonth(all: [Transaction],
                                            emptyCategories: [UserEmptyCategoryDisplay]) {
+
+        let buildStart = Date()
+        defer {
+            let duration = Date().timeIntervalSince(buildStart)
+            AppLogger.log("🧮 [CARDS BUILD] Processed \(all.count) txs (\(monthTx.count) in current month) in \(String(format: "%.2f", duration))s")
+        }
 
         var monthTx = all.filter { isTransactionInCurrentMonth($0) }
 

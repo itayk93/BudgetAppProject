@@ -148,6 +148,7 @@ struct CashflowCardsView: View {
                 EditTransactionView(
                     transaction: transaction,
                     onSave: { updatedTransaction in
+                        transactionToEdit = nil
                         // Update the transaction in the UI by calling the view model
                         // For now, we'll just refresh the data
                         Task {
@@ -168,7 +169,7 @@ struct CashflowCardsView: View {
                         }
                     },
                     onCancel: {
-                        // Handle cancel
+                        transactionToEdit = nil
                     }
                 )
             }
@@ -176,19 +177,17 @@ struct CashflowCardsView: View {
                 TransactionDetailsView(transaction: transaction)
             }
         }
-        .onAppear {
-            Task {
-                // Only load if not already loaded by LoginView
-                if vm.selectedCashFlow == nil && vm.cashFlows.isEmpty {
-                    await vm.loadInitial()
-                    await vm.refreshData()
-                } else if vm.selectedCashFlow != nil && vm.orderedItems.isEmpty {
-                    // If cash flow is selected but no data yet, just refresh
-                    await vm.refreshData()
+            .onAppear {
+                Task {
+                    // Only load if not already loaded by LoginView
+                    if vm.cashFlows.isEmpty || vm.selectedCashFlow == nil {
+                        await vm.loadInitial()
+                    } else if vm.orderedItems.isEmpty {
+                        await vm.refreshData()
+                    }
+                    
+                    await pendingTxsVm.refresh()
                 }
-                
-                await pendingTxsVm.refresh()
-            }
 
             if biometricsEnabled {
                 Task { await requestBiometricUnlock() }
