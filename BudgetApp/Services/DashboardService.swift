@@ -84,6 +84,25 @@ struct DashboardData: Codable {
     let all_time: Bool?
     let orderedCategories: [DashboardCategory]?
     let category_breakdown: [DashboardCategory]?
+    let monthly_goal: DashboardMonthlyGoal?
+
+    enum CodingKeys: String, CodingKey {
+        case summary
+        case transaction_count
+        case flow_month
+        case current_cash_flow_id
+        case all_time
+        case orderedCategories
+        case category_breakdown
+        case monthly_goal
+    }
+}
+
+struct DashboardMonthlyGoal: Codable {
+    let id: String?
+    let cash_flow_id: String?
+    let month_key: String?
+    let target_amount: Double?
 }
 
 final class DashboardService {

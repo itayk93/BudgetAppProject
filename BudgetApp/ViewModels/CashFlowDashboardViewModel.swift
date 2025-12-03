@@ -168,6 +168,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 let scope = CashFlowTransactionStore.ScopeKey(cashFlowID: old.id, baseURL: apiClient.baseURL)
                 transactionStore.reset(scope: scope)
                 lastTransactionSync.removeValue(forKey: scope)
+                chartAggregatesCache.removeValue(forKey: scope)
             }
             lastMonthlyGoals = []
             lastEmptyCategories = []
@@ -303,6 +304,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private var monthlyGoalsService: MonthlyGoalsService
     private var emptyCategoriesService: EmptyCategoriesService
     private let transactionStore = CashFlowTransactionStore()
+    private let dashboardService: DashboardService
 
     private var lastMonthlyGoals: [MonthlyGoal] = []
     private var lastEmptyCategories: [UserEmptyCategoryDisplay] = []
@@ -335,6 +337,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
     }()
 
     private var lastTransactionSync: [CashFlowTransactionStore.ScopeKey: Date] = [:]
+    private var chartAggregatesCache: [CashFlowTransactionStore.ScopeKey: [String: DashboardData]] = [:]
 
     private func monthInterval(for date: Date) -> DateInterval {
         let cal = Calendar(identifier: .gregorian)
@@ -382,6 +385,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         self.categoryOrderService = CategoryOrderService(apiClient: apiClient)
         self.monthlyGoalsService = MonthlyGoalsService(apiClient: apiClient)
         self.emptyCategoriesService = EmptyCategoriesService(apiClient: apiClient)
+        self.dashboardService = DashboardService(apiClient: apiClient)
     }
 
     // MARK: - Public API
@@ -631,33 +635,48 @@ final class CashFlowDashboardViewModel: ObservableObject {
         let requestedMonthKeys = monthKeys(in: interval)
         transactionStore.hydrateFromDisk(scope: scope, monthKeys: requestedMonthKeys)
         chartMonthKeys = requestedMonthKeys
-        metrics.servedFromCache = transactionStore.hasMonths(scope: scope, monthKeys: requestedMonthKeys)
+
+        var aggregateMap = chartAggregatesCache[scope] ?? [:]
+        let keysToFetch = force ? requestedMonthKeys : requestedMonthKeys.filter { aggregateMap[$0] == nil }
 
         do {
-            if force || !metrics.servedFromCache {
-                let perPage = max(250, min(1_000_000, requestedMonthKeys.count * 300))
-                let result = try await fetchTransactions(
-                    cashFlowID: cashFlow.id,
-                    startDate: interval.start,
-                    endDate: interval.end,
-                    perPage: perPage,
-                    updatedAfter: lastTransactionSync[scope]
+            var totalDuration: TimeInterval = 0
+            var fetchedTransactions = 0
+            for key in keysToFetch {
+                let parts = key.split(separator: "-")
+                guard parts.count == 2, let year = Int(parts[0]), let month = Int(parts[1]) else { continue }
+
+                let fetchStart = Date()
+                let data = try await dashboardService.fetchDashboard(
+                    year: year,
+                    month: month,
+                    cashFlowId: cashFlow.id,
+                    allTime: false
                 )
-                metrics.networkDuration = result.duration
-                metrics.payloadBytes = result.payloadBytes
-                metrics.transactionCount = result.transactions.count
-                transactionStore.cache(result.transactions, scope: scope)
+                totalDuration += Date().timeIntervalSince(fetchStart)
+                aggregateMap[key] = data
+                fetchedTransactions += data.transaction_count ?? 0
             }
-            transactionStore.mark(scope: scope, monthKeys: requestedMonthKeys)
+            chartAggregatesCache[scope] = aggregateMap
+
+            if !keysToFetch.isEmpty {
+                metrics.networkDuration = totalDuration
+                metrics.transactionCount = fetchedTransactions
+                metrics.servedFromCache = false
+            } else {
+                metrics.servedFromCache = true
+                metrics.transactionCount = aggregateMap.values.reduce(0) { $0 + ($1.transaction_count ?? 0) }
+            }
 
             let goals = try await fetchMonthlyGoalsIfNeeded(cashFlow: cashFlow, interval: interval)
-
             let buildStart = Date()
-            let chartTransactions = transactionStore.collect(scope: scope, monthKeys: requestedMonthKeys)
-            buildCharts(txs: chartTransactions, goals: goals, emptyCategories: lastEmptyCategories)
+            let aggregatedEntries = requestedMonthKeys.compactMap { key -> (String, DashboardData)? in
+                guard let data = aggregateMap[key] else { return nil }
+                return (key, data)
+            }
+            buildCharts(from: aggregatedEntries, goals: goals, emptyCategories: lastEmptyCategories)
             rebuildTransactionsSnapshot(scope: scope)
             metrics.buildDuration = Date().timeIntervalSince(buildStart)
-            updateLastSyncTimestamp(scope: scope, transactions: transactions)
         } catch {
             chartsLoadError = error.localizedDescription
             AppLogger.log("❌ [CHARTS LOAD] \(error)", force: true)
@@ -669,6 +688,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         )
         return metrics
     }
+
 
     private struct FetchTransactionsResult {
         let transactions: [Transaction]
@@ -791,8 +811,11 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
         rebuildTransactionsSnapshot(scope: scope)
         let chartKeys = chartMonthKeys.isEmpty ? combinedMonthKeys() : chartMonthKeys
-        let chartTransactions = transactionStore.collect(scope: scope, monthKeys: chartKeys)
-        buildCharts(txs: chartTransactions, goals: lastMonthlyGoals, emptyCategories: lastEmptyCategories)
+        let aggregatedEntries = chartKeys.compactMap { key -> (String, DashboardData)? in
+            guard let data = chartAggregatesCache[scope]?[key] else { return nil }
+            return (key, data)
+        }
+        buildCharts(from: aggregatedEntries, goals: lastMonthlyGoals, emptyCategories: lastEmptyCategories)
         buildCardsForCurrentMonth(all: transactions, emptyCategories: lastEmptyCategories)
     }
 
@@ -1093,46 +1116,60 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     // MARK: - Internal builders
 
-    private func buildCharts(txs: [Transaction],
+    private func buildCharts(from aggregates: [(String, DashboardData)],
                              goals: [MonthlyGoal],
                              emptyCategories: [UserEmptyCategoryDisplay]) {
-
-        let buildStart = Date()
-        defer {
-            let duration = Date().timeIntervalSince(buildStart)
-            AppLogger.log("📈 [CHARTS BUILD] Built charts from \(txs.count) txs + \(goals.count) goals in \(String(format: "%.2f", duration))s")
+        guard !aggregates.isEmpty else {
+            monthlyLabels = []
+            incomeSeries = []
+            expensesSeries = []
+            netSeries = []
+            cumulativeSeries = []
+            goalSeries = []
+            expenseCategorySlices = []
+            return
         }
 
         var monthly: [String: (income: Double, expenses: Double)] = [:]
         var categoryAgg: [String: Double] = [:]
-        let goalsMap = Dictionary(uniqueKeysWithValues: goals.map { ($0.monthKey, $0.targetAmount) })
+        var goalMap: [String: Double] = [:]
 
-        let flowTx = txs.filter { !isExcluded($0) }
-
-        for t in flowTx {
-            guard let key = t.flowMonthKey else { continue }
-            if monthly[key] == nil { monthly[key] = (0, 0) }
-            if t.isIncome || t.normalizedAmount > 0 {
-                monthly[key]!.income += max(0, t.normalizedAmount)
+        for (monthKey, data) in aggregates {
+            if let summary = data.summary {
+                monthly[monthKey] = (
+                    income: summary.total_income ?? 0,
+                    expenses: summary.total_expenses ?? 0
+                )
+            } else {
+                monthly[monthKey] = (income: 0, expenses: 0)
             }
-            if t.normalizedAmount < 0 {
-                let expenseAmount = abs(t.normalizedAmount)
-                monthly[key]!.expenses += expenseAmount
-                categoryAgg[t.effectiveCategoryName, default: 0] += expenseAmount
+
+            if let categories = data.category_breakdown {
+                for category in categories {
+                    if let type = category.type?.lowercased(), type == "income" {
+                        continue
+                    }
+                    let amount = category.amount ?? 0
+                    categoryAgg[category.name, default: 0] += amount
+                }
+            }
+
+            if let target = data.monthly_goal?.target_amount {
+                goalMap[monthKey] = target
+            } else if let fallback = goals.first(where: { $0.monthKey == monthKey })?.targetAmount {
+                goalMap[monthKey] = fallback
             }
         }
 
-
-
-        let sortedKeys = monthly.keys.sorted()
-        monthlyLabels = sortedKeys.map { monthLabel($0) }
-        incomeSeries = sortedKeys.map { monthly[$0]?.income ?? 0 }
-        expensesSeries = sortedKeys.map { monthly[$0]?.expenses ?? 0 }
+        let orderedKeys = aggregates.map { $0.0 }
+        monthlyLabels = orderedKeys.map { monthLabel($0) }
+        incomeSeries = orderedKeys.map { monthly[$0]?.income ?? 0 }
+        expensesSeries = orderedKeys.map { monthly[$0]?.expenses ?? 0 }
         netSeries = zip(incomeSeries, expensesSeries).map { $0 - $1 }
-        goalSeries = sortedKeys.map { goalsMap[$0] ?? 0 }
+        goalSeries = orderedKeys.map { goalMap[$0] ?? 0 }
 
-        var cum = 0.0
-        cumulativeSeries = netSeries.map { cum += $0; return cum }
+        var cumulative: Double = 0
+        cumulativeSeries = netSeries.map { cumulative += $0; return cumulative }
 
         expenseCategorySlices = categoryAgg.map { ($0.key, $0.value) }
             .filter { $0.1 > 0 }
@@ -1140,7 +1177,6 @@ final class CashFlowDashboardViewModel: ObservableObject {
             .prefix(10)
             .map { ($0.0, $0.1) }
     }
-
     private func _buildCategorySummariesForTransactions(
         transactions: [Transaction],
         isIncome: Bool, // To distinguish income from expense calculations
