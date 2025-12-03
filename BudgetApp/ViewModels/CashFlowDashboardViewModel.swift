@@ -167,6 +167,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
             if let old = oldValue {
                 let scope = CashFlowTransactionStore.ScopeKey(cashFlowID: old.id, baseURL: apiClient.baseURL)
                 transactionStore.reset(scope: scope)
+                lastTransactionSync.removeValue(forKey: scope)
             }
             lastMonthlyGoals = []
             lastEmptyCategories = []
@@ -327,6 +328,14 @@ final class CashFlowDashboardViewModel: ObservableObject {
         return CashFlowTransactionStore.ScopeKey(cashFlowID: cf.id, baseURL: apiClient.baseURL)
     }
 
+    private static let apiISOStringFormatter: ISO8601DateFormatter = {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        return formatter
+    }()
+
+    private var lastTransactionSync: [CashFlowTransactionStore.ScopeKey: Date] = [:]
+
     private func monthInterval(for date: Date) -> DateInterval {
         let cal = Calendar(identifier: .gregorian)
         guard let start = cal.date(from: cal.dateComponents([.year, .month], from: date)) else {
@@ -471,12 +480,12 @@ final class CashFlowDashboardViewModel: ObservableObject {
         await withTaskGroup(of: (String, PartialLoadMetrics).self) { group in
             group.addTask { [weak self] in
                 guard let self else { return ("cards", emptyMetrics) }
-                let metrics = await self.loadCurrentMonthOnly(for: cf)
+                let metrics = await self.loadCurrentMonthOnly(for: cf, force: force)
                 return ("cards", metrics)
             }
             group.addTask { [weak self] in
                 guard let self else { return ("charts", emptyMetrics) }
-                let metrics = await self.loadChartsOnly(for: cf)
+                let metrics = await self.loadChartsOnly(for: cf, force: force)
                 return ("charts", metrics)
             }
 
@@ -507,18 +516,18 @@ final class CashFlowDashboardViewModel: ObservableObject {
         isCachingTransactions = lastCardsServedFromCache && lastChartsServedFromCache
     }
 
-    func refreshCardsOnly() async {
+    func refreshCardsOnly(force: Bool = false) async {
         guard let cf = selectedCashFlow else { return }
-        let metrics = await loadCurrentMonthOnly(for: cf)
+        let metrics = await loadCurrentMonthOnly(for: cf, force: force)
         lastCardsServedFromCache = metrics.servedFromCache
         if !loading {
             isCachingTransactions = lastCardsServedFromCache && lastChartsServedFromCache
         }
     }
 
-    func refreshChartsOnly() async {
+    func refreshChartsOnly(force: Bool = false) async {
         guard let cf = selectedCashFlow else { return }
-        let metrics = await loadChartsOnly(for: cf)
+        let metrics = await loadChartsOnly(for: cf, force: force)
         lastChartsServedFromCache = metrics.servedFromCache
         if !loading {
             isCachingTransactions = lastCardsServedFromCache && lastChartsServedFromCache
@@ -543,7 +552,16 @@ final class CashFlowDashboardViewModel: ObservableObject {
         return transactionStore.hasMonths(scope: scope, monthKeys: chartKeys)
     }
 
-    private func loadCurrentMonthOnly(for cashFlow: CashFlow) async -> PartialLoadMetrics {
+    private func updateLastSyncTimestamp(scope: CashFlowTransactionStore.ScopeKey, transactions: [Transaction]) {
+        let latest = transactions
+            .compactMap { $0.createdAtDate ?? $0.parsedDate }
+            .max()
+        guard let newest = latest else { return }
+        if let existing = lastTransactionSync[scope], existing >= newest { return }
+        lastTransactionSync[scope] = newest
+    }
+
+    private func loadCurrentMonthOnly(for cashFlow: CashFlow, force: Bool = false) async -> PartialLoadMetrics {
         var metrics = PartialLoadMetrics()
         guard let scope = currentScope else { return metrics }
 
@@ -556,12 +574,13 @@ final class CashFlowDashboardViewModel: ObservableObject {
         metrics.servedFromCache = transactionStore.hasMonths(scope: scope, monthKeys: [currentMonthKey])
 
         do {
-            if !metrics.servedFromCache {
+            if force || !metrics.servedFromCache {
                 let result = try await fetchTransactions(
                     cashFlowID: cashFlow.id,
                     startDate: interval.start,
                     endDate: interval.end,
-                    perPage: 750
+                    perPage: 750,
+                    updatedAfter: lastTransactionSync[scope]
                 )
                 metrics.networkDuration = result.duration
                 metrics.payloadBytes = result.payloadBytes
@@ -580,6 +599,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
             rebuildTransactionsSnapshot(scope: scope)
             buildCardsForCurrentMonth(all: transactions, emptyCategories: emptyCategories)
             metrics.buildDuration = Date().timeIntervalSince(buildStart)
+            updateLastSyncTimestamp(scope: scope, transactions: transactions)
 
             pendingTransactions = try await apiClient.fetchPendingTransactions(
                 cashFlowID: cashFlow.id,
@@ -598,7 +618,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         return metrics
     }
 
-    private func loadChartsOnly(for cashFlow: CashFlow) async -> PartialLoadMetrics {
+    private func loadChartsOnly(for cashFlow: CashFlow, force: Bool = false) async -> PartialLoadMetrics {
         var metrics = PartialLoadMetrics()
         guard let scope = currentScope else { return metrics }
 
@@ -614,13 +634,14 @@ final class CashFlowDashboardViewModel: ObservableObject {
         metrics.servedFromCache = transactionStore.hasMonths(scope: scope, monthKeys: requestedMonthKeys)
 
         do {
-            if !metrics.servedFromCache {
+            if force || !metrics.servedFromCache {
                 let perPage = max(250, min(1_000_000, requestedMonthKeys.count * 300))
                 let result = try await fetchTransactions(
                     cashFlowID: cashFlow.id,
                     startDate: interval.start,
                     endDate: interval.end,
-                    perPage: perPage
+                    perPage: perPage,
+                    updatedAfter: lastTransactionSync[scope]
                 )
                 metrics.networkDuration = result.duration
                 metrics.payloadBytes = result.payloadBytes
@@ -636,6 +657,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
             buildCharts(txs: chartTransactions, goals: goals, emptyCategories: lastEmptyCategories)
             rebuildTransactionsSnapshot(scope: scope)
             metrics.buildDuration = Date().timeIntervalSince(buildStart)
+            updateLastSyncTimestamp(scope: scope, transactions: transactions)
         } catch {
             chartsLoadError = error.localizedDescription
             AppLogger.log("❌ [CHARTS LOAD] \(error)", force: true)
@@ -658,7 +680,8 @@ final class CashFlowDashboardViewModel: ObservableObject {
         cashFlowID: String,
         startDate: Date,
         endDate: Date,
-        perPage: Int
+        perPage: Int,
+        updatedAfter: Date? = nil
     ) async throws -> FetchTransactionsResult {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
@@ -670,12 +693,19 @@ final class CashFlowDashboardViewModel: ObservableObject {
             URLQueryItem(name: "end_date", value: formatter.string(from: endDate))
         ]
         query.append(URLQueryItem(name: "sort", value: "payment_date"))
+        if let updatedAfter {
+            query.append(URLQueryItem(
+                name: "updated_after",
+                value: Self.apiISOStringFormatter.string(from: updatedAfter)
+            ))
+        }
 
         let networkStart = Date()
         let (txs, payloadBytes) = try await apiClient.fetchTransactionsFlexibleWithMetadata(query: query)
         let duration = Date().timeIntervalSince(networkStart)
+        let updatedAfterLog = updatedAfter.map { " updated_after=\(Self.apiISOStringFormatter.string(from: $0))" } ?? ""
         AppLogger.log(
-            "📦 [FETCH TX] cashFlow=\(cashFlowID) count=\(txs.count) per_page=\(perPage) bytes=\(payloadBytes) duration=\(String(format: "%.2f", duration))s",
+            "📦 [FETCH TX] cashFlow=\(cashFlowID) count=\(txs.count) per_page=\(perPage) bytes=\(payloadBytes) duration=\(String(format: "%.2f", duration))s\(updatedAfterLog)",
             force: true
         )
         return .init(transactions: txs, duration: duration, payloadBytes: payloadBytes)

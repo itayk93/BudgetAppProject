@@ -419,7 +419,7 @@ struct CashflowCardsView: View {
                         detail: cardsError,
                         actionTitle: "רענון כרטיסים"
                     ) {
-                        Task { await vm.refreshCardsOnly() }
+                        Task { await vm.refreshCardsOnly(force: true) }
                     }
                 }
                 if vm.isLoadingCharts && vm.monthlyLabels.isEmpty {
@@ -430,7 +430,7 @@ struct CashflowCardsView: View {
                         detail: chartsError,
                         actionTitle: "רענון גרפים"
                     ) {
-                        Task { await vm.refreshChartsOnly() }
+                        Task { await vm.refreshChartsOnly(force: true) }
                     }
                 }
             }
