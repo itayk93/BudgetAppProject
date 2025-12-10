@@ -215,7 +215,10 @@ struct CashflowCardsView: View {
                 .foregroundColor(Theme.primary)
                 .accessibilityLabel("פתח סינון עסקאות")
 
-                Button(action: { showingSearchSheet = true }) {
+                Button {
+                    AppLogger.log("🔎 Search menu opened from cashflow cards")
+                    showingSearchSheet = true
+                } label: {
                     Image(systemName: "magnifyingglass")
                         .font(.title3)
                 }
@@ -1297,16 +1300,16 @@ struct CashflowCardsView: View {
         }()
     }
 
-    private struct TransactionSearchSheet: View {
-        @EnvironmentObject private var vm: CashFlowDashboardViewModel
-        @Environment(\.dismiss) private var dismiss
-        let filter: TransactionFilter
-        let currencySymbol: String
-        @State private var searchText: String = ""
+        private struct TransactionSearchSheet: View {
+            @EnvironmentObject private var vm: CashFlowDashboardViewModel
+            @Environment(\.dismiss) private var dismiss
+            let filter: TransactionFilter
+            let currencySymbol: String
+            @State private var searchText: String = ""
 
-        var body: some View {
-            NavigationStack {
-                List {
+            var body: some View {
+                NavigationStack {
+                    List {
                     Section(header: Text("תוצאות (\(results.count))")) {
                         if results.isEmpty {
                             Text("לא נמצאו עסקאות")
@@ -1324,6 +1327,12 @@ struct CashflowCardsView: View {
                     ToolbarItem(placement: .cancellationAction) {
                         Button("סגור") { dismiss() }
                     }
+                }
+                .onAppear {
+                    AppLogger.log("🔍 TransactionSearchSheet appeared (filter active=\(filter.isActive))")
+                }
+                .onChange(of: searchText) { newValue in
+                    AppLogger.log("🔍 TransactionSearchSheet search text updated: '\(newValue)'")
                 }
             }
         }
