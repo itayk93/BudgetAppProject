@@ -1617,7 +1617,7 @@ private extension CashflowCardsView {
                 }
                 .environment(\.layoutDirection, .leftToRight).font(.headline).frame(minWidth: 80, alignment: .leading)
                 Spacer()
-                NavigationLink(destination: TransactionDetailsView(transaction: t)) {
+                NavigationLink(destination: EditTransactionDestination(transaction: t)) {
                     Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                 }
             }
@@ -2019,7 +2019,7 @@ private extension CashflowCardsView {
                     }
                     .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: t)) {
+                    NavigationLink(destination: EditTransactionDestination(transaction: t)) {
                         Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                     }
                 }
@@ -2040,7 +2040,7 @@ private extension CashflowCardsView {
                     }
                     .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: t)) {
+                    NavigationLink(destination: EditTransactionDestination(transaction: t)) {
                         Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                     }
                 }
@@ -2216,7 +2216,7 @@ private extension CashflowCardsView {
                     }
                     .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: t)) {
+                    NavigationLink(destination: EditTransactionDestination(transaction: t)) {
                         Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                     }
                 }
@@ -2244,7 +2244,7 @@ struct GroupTransactionRow: View {
                     Text(dateString(transaction.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
                     Text(formatAmount(abs(transaction.normalizedAmount))).font(.subheadline).foregroundColor(accent).monospacedDigit().frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: TransactionDetailsView(transaction: transaction)) {
+                    NavigationLink(destination: EditTransactionDestination(transaction: transaction)) {
                         Image(systemName: "ellipsis").foregroundColor(.secondary)
                     }
                 }
@@ -2260,6 +2260,20 @@ struct GroupTransactionRow: View {
         private func formatAmount(_ value: Double) -> String {
             let formatter = NumberFormatter(); formatter.locale = Locale(identifier: "he_IL"); formatter.numberStyle = .currency; formatter.currencyCode = currency; formatter.maximumFractionDigits = 1; return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
         }
+    }
+}
+
+private struct EditTransactionDestination: View {
+    @EnvironmentObject private var vm: CashFlowDashboardViewModel
+    let transaction: Transaction
+
+    var body: some View {
+        EditTransactionView(
+            transaction: transaction,
+            onSave: { _ in },
+            onDelete: { tx in Task { await vm.deleteTransaction(tx) } },
+            onCancel: {}
+        )
     }
 }
 

@@ -8,7 +8,7 @@ struct PendingTransactionsReviewView: View {
     @State private var heroNoteExpanded = false
     @State private var heroNoteText = ""
     @State private var moveFlowMonthExpanded = false
-    @State private var moveFlowMonthText = ""
+    @State private var moveFlowMonthDate = Date()
     @State private var moveFlowMonthError: String?
     @State private var isMovingFlowMonth = false
     @State private var toastMessage: String?
@@ -23,14 +23,15 @@ struct PendingTransactionsReviewView: View {
 
     var body: some View {
         contentView
+            .dismissKeyboardOnTap()
             .navigationTitle("אישור עסקאות")
-            .navigationBarTitleDisplayMode(.inline)
+            .navigationBarTitleDisplayMode(NavigationBarItem.TitleDisplayMode.inline)
             .task {
-                print("📱 [DEBUG] PendingTransactionsReviewView appeared, refreshing")
+                AppLogger.log("📱 [DEBUG] PendingTransactionsReviewView appeared, refreshing")
                 await viewModel.refresh()
             }
             .refreshable {
-                print("📱 [DEBUG] Pull to refresh triggered")
+                AppLogger.log("📱 [DEBUG] Pull to refresh triggered")
                 await viewModel.refresh()
             }
             .sheet(item: $pendingCategoryChange) { transaction in
@@ -82,7 +83,7 @@ struct PendingTransactionsReviewView: View {
                     }
                 )
             }
-            .overlay(alignment: .top) {
+            .overlay(alignment: Alignment.top) {
                 if let toastMessage {
                     toastView(message: toastMessage)
                         .transition(.move(edge: .top).combined(with: .opacity))
@@ -111,11 +112,11 @@ struct PendingTransactionsReviewView: View {
             }
             // RTL גלובלי – ה־HStackים של הכפתורים נשארים כמו בעבר,
             // ואת הכרטיס הצהוב אנחנו מיישרים ידנית לצד ימין.
-            .environment(\.layoutDirection, .rightToLeft)
+            .environment(\.layoutDirection, LayoutDirection.rightToLeft)
     }
 
     private var contentView: some View {
-        ZStack(alignment: .top) {
+        ZStack(alignment: Alignment.top) {
             Color(UIColor.systemGray5).ignoresSafeArea()
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
@@ -163,7 +164,7 @@ struct PendingTransactionsReviewView: View {
                     }
                     Spacer()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+                .frame(maxWidth: .infinity, alignment: .trailing)
 
                 // 2. כותרת קטגוריה
                 Text(categoryLabel(for: transaction))
@@ -243,28 +244,15 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func heroDragGesture(for transaction: Transaction) -> some Gesture {
-        LongPressGesture(minimumDuration: 0.25)
-            .sequenced(before: DragGesture(minimumDistance: 0))
+        DragGesture(minimumDistance: 10)
             .onChanged { value in
-                guard viewModel.processingTransactionID == nil && pendingCategoryChange == nil else { return }
-                if case .second(true, let drag?) = value {
-                    dragOffset = CGSize(width: drag.translation.width, height: 0)
+                let clamped = min(0, value.translation.width) // Only allow swiping left
+                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
+                    dragOffset = CGSize(width: clamped, height: 0)
                 }
             }
             .onEnded { value in
-                guard viewModel.processingTransactionID == nil && pendingCategoryChange == nil else {
-                    withAnimation(.spring()) {
-                        dragOffset = .zero
-                    }
-                    return
-                }
-                if case .second(true, let drag?) = value {
-                    handleDragEnd(translationX: drag.translation.width, transaction: transaction)
-                } else {
-                    withAnimation(.spring()) {
-                        dragOffset = .zero
-                    }
-                }
+                handleDragEnd(translationX: value.translation.width, transaction: transaction)
             }
     }
 
@@ -305,14 +293,16 @@ struct PendingTransactionsReviewView: View {
     private func heroActions(for transaction: Transaction) -> [HeroAction] {
         [
             HeroAction(id: "move", icon: "arrowshape.turn.up.right", title: "להזיז את ההוצאה") {
-                print("🔄 [HERO ACTION] Move tapped for tx=\(transaction.id)")
+                AppLogger.log("🔄 [HERO ACTION] Move tapped for tx=\(transaction.id)")
                 pendingCategoryChange = transaction
             },
             HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
                 splitTransactionTarget = transaction
             },
-            HeroAction(id: "savings", icon: "banknote", title: "הפקדה לחיסכון") {
-                showToastMessage("סומן כהפקדה לחיסכון.")
+            HeroAction(id: "delete", icon: "trash", title: "מחיקת עסקה") {
+                Task {
+                    await viewModel.delete(transaction)
+                }
             }
         ]
     }
@@ -381,7 +371,7 @@ struct PendingTransactionsReviewView: View {
                     if moveFlowMonthExpanded {
                         moveFlowMonthExpanded = false
                     } else {
-                        moveFlowMonthText = resolvedFlowMonth(for: transaction)
+                        moveFlowMonthDate = flowMonthDate(for: transaction)
                         moveFlowMonthError = nil
                         moveFlowMonthExpanded = true
                     }
@@ -389,26 +379,22 @@ struct PendingTransactionsReviewView: View {
             }
 
             if moveFlowMonthExpanded {
-                VStack(alignment: .trailing, spacing: 10) {
+                VStack(alignment: .trailing, spacing: 12) {
                     VStack(alignment: .trailing, spacing: 4) {
-                        Text("חודש תזרים חדש (yyyy-MM)")
+                        Text("חודש תזרים")
                             .font(.footnote.weight(.semibold))
                             .foregroundColor(.secondary)
-                        TextField("2025-11", text: $moveFlowMonthText)
-                            .textInputAutocapitalization(.never)
-                            .disableAutocorrection(true)
-                            .keyboardType(.numbersAndPunctuation)
-                            .multilineTextAlignment(.trailing)
-                            .font(.title3.monospacedDigit())
-                            .padding(10)
-                            .background(Color(UIColor.systemGray6))
-                            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                            .onChange(of: moveFlowMonthText) { newValue, _ in
-                                let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(newValue)
-                                if sanitized != newValue {
-                                    moveFlowMonthText = sanitized
-                                }
-                            }
+                        DatePicker(
+                            "",
+                            selection: $moveFlowMonthDate,
+                            displayedComponents: [.date]
+                        )
+                        .datePickerStyle(.wheel)
+                        .labelsHidden()
+                        .clipped()
+                        Text(formattedFlowMonth(from: moveFlowMonthDate))
+                            .font(.subheadline.monospacedDigit())
+                            .frame(maxWidth: .infinity, alignment: .trailing)
                     }
                     if let error = moveFlowMonthError {
                         Text(error)
@@ -445,10 +431,8 @@ struct PendingTransactionsReviewView: View {
                             .foregroundColor(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
-                        .disabled(
-                            !FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) || isMovingFlowMonth
-                        )
-                        .opacity(!FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) || isMovingFlowMonth ? 0.6 : 1)
+                        .disabled(isMovingFlowMonth)
+                        .opacity(isMovingFlowMonth ? 0.6 : 1)
                     }
                 }
                 .padding(10)
@@ -473,15 +457,12 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func submitMoveFlowMonth(_ transaction: Transaction) {
-        guard FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) else {
-            moveFlowMonthError = "הזן חודש תזרים תקין בפורמט yyyy-MM"
-            return
-        }
+        let targetMonth = formattedFlowMonth(from: moveFlowMonthDate)
         moveFlowMonthError = nil
         isMovingFlowMonth = true
         Task {
             do {
-                try await viewModel.move(transaction, toFlowMonth: moveFlowMonthText)
+                try await viewModel.move(transaction, toFlowMonth: targetMonth)
                 await MainActor.run {
                     isMovingFlowMonth = false
                     moveFlowMonthExpanded = false
@@ -496,10 +477,27 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func displayedFlowMonth(for transaction: Transaction) -> String {
-        if moveFlowMonthExpanded && FlowMonthInputValidator.isValidFlowMonth(moveFlowMonthText) {
-            return moveFlowMonthText
+        if moveFlowMonthExpanded {
+            return formattedFlowMonth(from: moveFlowMonthDate)
         }
         return resolvedFlowMonth(for: transaction)
+    }
+
+    private func flowMonthDate(for transaction: Transaction) -> Date {
+        if let raw = transaction.flow_month,
+           let date = FlowMonthInputValidator.monthFormatter.date(from: raw) {
+            return date
+        }
+        if let parsed = transaction.parsedDate {
+            let formatted = FlowMonthInputValidator.monthFormatter.string(from: parsed)
+            return FlowMonthInputValidator.monthFormatter.date(from: formatted) ?? parsed
+        }
+        let formatted = FlowMonthInputValidator.monthFormatter.string(from: Date())
+        return FlowMonthInputValidator.monthFormatter.date(from: formatted) ?? Date()
+    }
+
+    private func formattedFlowMonth(from date: Date) -> String {
+        FlowMonthInputValidator.monthFormatter.string(from: date)
     }
 
     private func heroFooter(for transaction: Transaction) -> some View {
@@ -616,6 +614,19 @@ struct PendingTransactionsReviewView: View {
                 .font(.footnote)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+
+            Button {
+                dismiss()
+            } label: {
+                Text("סגור")
+                    .font(.body.weight(.semibold))
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
+            }
+            .padding(.top, 10)
         }
         .frame(maxWidth: .infinity)
         .padding(24)
@@ -626,16 +637,11 @@ struct PendingTransactionsReviewView: View {
     }
 
     private func handleDragEnd(translationX: CGFloat, transaction: Transaction) {
-        if translationX > swipeThreshold {
-            withAnimation {
-                dragOffset = CGSize(width: translationX, height: 0)
+        if translationX < -swipeThreshold {
+            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                dragOffset = CGSize(width: max(translationX, -220), height: 0)
             }
             Task { await viewModel.approve(transaction) }
-        } else if translationX < -swipeThreshold {
-            withAnimation {
-                dragOffset = CGSize(width: translationX, height: 0)
-            }
-            pendingCategoryChange = transaction
         } else {
             withAnimation(.spring()) {
                 dragOffset = .zero

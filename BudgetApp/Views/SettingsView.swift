@@ -13,6 +13,9 @@ struct SettingsView: View {
             NavigationLink("ניהול קטגוריות") {
                 ManageCategoriesView()
             }
+            NavigationLink("עסקאות שנבחנות מחדש") {
+                ReviewedTransactionsSearchView()
+            }
         }
         .navigationTitle("הגדרות")
 #if os(iOS)
