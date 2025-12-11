@@ -334,7 +334,8 @@ struct CashflowCardsView: View {
             GroupSectionCard(
                 group: group,
                 accent: groupAccentColor(for: group.title),
-                currency: vm.selectedCashFlow?.currency ?? "ILS"
+                currency: vm.selectedCashFlow?.currency ?? "ILS",
+                onEditTransaction: { t in selectedTransactionForEdit = t }
             )
 
         case .category(let cat):
@@ -1686,7 +1687,7 @@ private extension CashflowCardsView {
     private func groupSection(group: CashFlowDashboardViewModel.GroupSummary, accent: Color) -> some View {
         GroupSectionCard(group: group, accent: accent, currency: vm.selectedCashFlow?.currency ?? "ILS", onEditTransaction: { t in selectedTransactionForEdit = t })
     }
-    }
+
 
     private func transactionRow(_ t: Transaction, currency: String, highlight: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
