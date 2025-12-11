@@ -65,13 +65,13 @@ struct EditTransactionView: View {
 
                 bottomSheet
                     .frame(maxWidth: .infinity, alignment: .bottom)
-                    .frame(maxHeight: proxy.size.height * 0.8, alignment: .bottom) // היה 0.7
-                    .ignoresSafeArea(.container, edges: .bottom)
+                    .frame(maxHeight: proxy.size.height * 0.8, alignment: .bottom)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissKeyboard()
                     }
             }
+            .edgesIgnoringSafeArea(.bottom)
         }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSplitTransaction) {
@@ -217,7 +217,7 @@ struct EditTransactionView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
-        .padding(.bottom, 44)
+        .padding(.bottom, 60)
     }
 
     // MARK: - Save / Update
