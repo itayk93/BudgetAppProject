@@ -350,7 +350,7 @@ struct CashflowCardsView: View {
                 },
                 onEditBudget: {
                     selectedCategoryForBudgetEdit = cat
-                    editingBudgetValue = cat.budget ?? 0
+                    editingBudgetValue = cat.target ?? 0
                     showingEditBudgetSheet = true
                 },
                 onPlanAhead: {
@@ -1722,13 +1722,7 @@ private extension CashflowCardsView {
         f.dateFormat = "d.M.yy"
         return f.string(from: d)
     }
-    private func formatNumber(_ v: Double) -> String {
-        let f = NumberFormatter()
-        f.numberStyle = .decimal
-        f.maximumFractionDigits = 1
-        f.groupingSeparator = ","
-        return f.string(from: NSNumber(value: v)) ?? String(format: "%.1f", v)
-    }
+
 }
 
 // MARK: - Helper Views
