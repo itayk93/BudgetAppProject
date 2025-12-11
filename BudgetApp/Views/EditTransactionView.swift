@@ -26,6 +26,8 @@ struct EditTransactionView: View {
     @State private var didDelete = false
     @State private var errorMessage: String?
     @State private var sheetDragOffset: CGFloat = 0
+    @State private var heroHeight: CGFloat = 0
+    @State private var scrollContentHeight: CGFloat = 0
 
     @EnvironmentObject private var vm: CashFlowDashboardViewModel
 
@@ -63,9 +65,9 @@ struct EditTransactionView: View {
                         dismissKeyboard()
                     }
 
-                bottomSheet
+                bottomSheet(availableHeight: proxy.size.height * 0.8)
                     .frame(maxWidth: .infinity, alignment: .bottom)
-                    .frame(maxHeight: proxy.size.height * 0.8, alignment: .bottom)
+
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissKeyboard()
@@ -115,15 +117,31 @@ struct EditTransactionView: View {
 
     // MARK: - Layout
 
-    private var bottomSheet: some View {
+    private func bottomSheet(availableHeight: CGFloat) -> some View {
         VStack(spacing: 0) {
             heroSection
+                .background(
+                    GeometryReader { geo in
+                        Color.clear.preference(key: HeroSizePreferenceKey.self, value: geo.size)
+                    }
+                )
 
             ScrollView(showsIndicators: false) {
                 actionsSection
-                    .padding(.bottom, 16)
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: ScrollContentSizePreferenceKey.self, value: geo.size)
+                        }
+                    )
             }
             .scrollDismissesKeyboard(.interactively)
+            .frame(height: calculateScrollViewHeight(maxTotal: availableHeight))
+        }
+        .onPreferenceChange(HeroSizePreferenceKey.self) { size in
+            heroHeight = size.height
+        }
+        .onPreferenceChange(ScrollContentSizePreferenceKey.self) { size in
+            scrollContentHeight = size.height
         }
         .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
@@ -132,6 +150,13 @@ struct EditTransactionView: View {
         .offset(y: sheetDragOffset)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: sheetDragOffset)
         .simultaneousGesture(sheetDismissGesture)
+    }
+
+    private func calculateScrollViewHeight(maxTotal: CGFloat) -> CGFloat {
+        let availableForScroll = max(0, maxTotal - heroHeight)
+        // If content is smaller than available space, use content height (allows shrinking)
+        // If content is larger, use available space (allows scrolling within max height)
+        return min(scrollContentHeight, availableForScroll)
     }
 
     private var sheetDismissGesture: some Gesture {
@@ -813,6 +838,20 @@ private struct ActionCard: ViewModifier {
 private extension View {
     func actionCard(destructive: Bool = false) -> some View {
         modifier(ActionCard(isDestructive: destructive))
+    }
+}
+
+struct HeroSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
+    }
+}
+
+struct ScrollContentSizePreferenceKey: PreferenceKey {
+    static var defaultValue: CGSize = .zero
+    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
+        value = nextValue()
     }
 }
 
