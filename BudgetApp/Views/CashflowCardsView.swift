@@ -322,13 +322,13 @@ struct CashflowCardsView: View {
     private func itemView(for item: CashFlowDashboardViewModel.Item) -> some View {
         switch item {
         case .income:
-            incomeSection
+            incomeSection(onEdit: { t in selectedTransactionForEdit = t })
 
         case .savings:
-            savingsSection
+            savingsSection(onEdit: { t in selectedTransactionForEdit = t })
 
         case .nonCashflow:
-            nonCashflowSection
+            nonCashflowSection(onEdit: { t in selectedTransactionForEdit = t })
 
         case .sharedGroup(let group):
             GroupSectionCard(
@@ -1621,23 +1621,23 @@ struct CashflowCardsView: View {
 
 // MARK: - Sections
 private extension CashflowCardsView {
-    private var incomeSection: some View {
+    private func incomeSection(onEdit: @escaping (Transaction) -> Void) -> some View {
         SectionCard(title: "הכנסות", accent: .green, expectedLabel: "צפוי להיכנס", expectedValue: vm.incomeExpected, actualLabel: "נכנס", actualValue: vm.incomeTotal, currency: vm.selectedCashFlow?.currency ?? "ILS") {
             ForEach(vm.incomeTransactions, id: \.id) { t in
-                transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .green)
+                transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .green, onEdit: onEdit)
             }
         }
     }
 
-    private var savingsSection: some View {
+    private func savingsSection(onEdit: @escaping (Transaction) -> Void) -> some View {
         SectionCard(title: "הפקדות לחיסכון", accent: .orange, expectedLabel: "צפוי לצאת", expectedValue: vm.savingsExpected, actualLabel: "יצא", actualValue: vm.savingsTotal, currency: vm.selectedCashFlow?.currency ?? "ILS") {
             ForEach(vm.savingsTransactions, id: \.id) { t in
-                transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .orange)
+                transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .orange, onEdit: onEdit)
             }
         }
     }
 
-    private var nonCashflowSection: some View {
+    private func nonCashflowSection(onEdit: @escaping (Transaction) -> Void) -> some View {
         VStack(spacing: 0) {
             VStack(alignment: .leading, spacing: 12) {
                 HStack {
@@ -1663,14 +1663,14 @@ private extension CashflowCardsView {
                 DisclosureGroup("פירוט הכנסות לא תזרימיות") {
                     VStack(spacing: 8) {
                         ForEach(vm.excludedIncome, id: \.id) { t in
-                            transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .green)
+                            transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .green, onEdit: onEdit)
                         }
                     }
                 }.accentColor(.primary)
                 DisclosureGroup("פירוט הוצאות לא תזרימיות") {
                     VStack(spacing: 8) {
                         ForEach(vm.excludedExpense, id: \.id) { t in
-                            transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .pink)
+                            transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .pink, onEdit: onEdit)
                         }
                     }
                 }.accentColor(.primary)
@@ -1689,7 +1689,7 @@ private extension CashflowCardsView {
     }
 
 
-    private func transactionRow(_ t: Transaction, currency: String, highlight: Color) -> some View {
+    private func transactionRow(_ t: Transaction, currency: String, highlight: Color, onEdit: @escaping (Transaction) -> Void) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
                 Text(shortDate(t.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
@@ -1701,7 +1701,7 @@ private extension CashflowCardsView {
                 Spacer()
                 Button {
                     withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                        selectedTransactionForEdit = t
+                        onEdit(t)
                     }
                 } label: {
                     Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
