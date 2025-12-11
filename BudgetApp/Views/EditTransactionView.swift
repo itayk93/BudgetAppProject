@@ -66,6 +66,7 @@ struct EditTransactionView: View {
                 bottomSheet
                     .frame(maxWidth: .infinity, alignment: .bottom)
                     .frame(maxHeight: proxy.size.height * 0.8, alignment: .bottom) // היה 0.7
+                    .ignoresSafeArea(.container, edges: .bottom)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissKeyboard()
@@ -216,7 +217,7 @@ struct EditTransactionView: View {
         }
         .padding(.horizontal, 16)
         .padding(.top, 16)
-        .padding(.bottom, 24)
+        .padding(.bottom, 44)
     }
 
     // MARK: - Save / Update
