@@ -1300,21 +1300,31 @@ struct CashflowCardsView: View {
         }()
     }
 
-        private struct TransactionSearchSheet: View {
-            @EnvironmentObject private var vm: CashFlowDashboardViewModel
-            @Environment(\.dismiss) private var dismiss
-            let filter: TransactionFilter
-            let currencySymbol: String
-            @State private var searchText: String = ""
+    private struct TransactionSearchSheet: View {
+        @EnvironmentObject private var vm: CashFlowDashboardViewModel
+        @Environment(\.dismiss) private var dismiss
+        let filter: TransactionFilter
+        let currencySymbol: String
+        @State private var searchText: String = ""
+        @State private var debouncedQuery: String = ""
+        @State private var debounceTask: Task<Void, Never>?
 
-            var body: some View {
-                NavigationStack {
-                    List {
+        private let minSearchLength = 2
+        private let debounceDelay: UInt64 = 500_000_000 // 0.5s
+
+        var body: some View {
+            NavigationStack {
+                List {
                     Section(header: Text("תוצאות (\(results.count))")) {
-                        if results.isEmpty {
+                        if !isReadyToSearch {
+                            Text("הקלד לפחות שתי אותיות כדי להתחיל לחפש")
+                                .font(.footnote)
+                                .foregroundColor(.secondary)
+                        } else if results.isEmpty {
                             Text("לא נמצאו עסקאות")
                                 .font(.footnote)
                         }
+
                         ForEach(results, id: \.id) { tx in
                             TransactionSearchRow(transaction: tx, currencySymbol: currencySymbol)
                         }
@@ -1333,19 +1343,33 @@ struct CashflowCardsView: View {
                 }
                 .onChange(of: searchText) { newValue in
                     AppLogger.log("🔍 TransactionSearchSheet search text updated: '\(newValue)'")
+                    debounceTask?.cancel()
+                    let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+                    debounceTask = Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: debounceDelay)
+                        debouncedQuery = trimmed
+                    }
+                }
+                .onDisappear {
+                    debounceTask?.cancel()
                 }
             }
         }
 
         private var results: [Transaction] {
-            vm.transactions
-                .filter { filter.matches($0, accountName: $0.accountDisplayName) && matchesSearchText($0) }
+            guard isReadyToSearch else { return [] }
+            return vm.transactions
+                .filter { filter.matches($0, accountName: $0.accountDisplayName) && matchesSearchText($0, query: debouncedQuery) }
                 .sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
         }
 
-        private func matchesSearchText(_ transaction: Transaction) -> Bool {
-            let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !query.isEmpty else { return true }
+        private var isReadyToSearch: Bool {
+            debouncedQuery.trimmingCharacters(in: .whitespacesAndNewlines).count >= minSearchLength
+        }
+
+        private func matchesSearchText(_ transaction: Transaction, query: String) -> Bool {
+            let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard query.count >= minSearchLength else { return false }
             let lower = query.lowercased()
             if transaction.business_name?.lowercased().contains(lower) == true { return true }
             if transaction.effectiveCategoryName.lowercased().contains(lower) { return true }
@@ -1361,37 +1385,38 @@ struct CashflowCardsView: View {
             formatter.groupingSeparator = ","
             return formatter.string(from: NSNumber(value: value)) ?? String(format: "%.1f", value)
         }
+    }
 
-        private struct TransactionSearchRow: View {
-            let transaction: Transaction
-            let currencySymbol: String
+    private struct TransactionSearchRow: View {
+        let transaction: Transaction
+        let currencySymbol: String
 
-            var body: some View {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(transaction.business_name?.isEmpty == false ? transaction.business_name! : transaction.effectiveCategoryName)
-                            .font(.body)
-                        HStack(spacing: 6) {
-                            Text(transaction.effectiveCategoryName)
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                            Text(transaction.accountDisplayName)
-                                .font(.caption2)
-                                .foregroundColor(.secondary)
-                        }
-                        Text(dateString(transaction.parsedDate))
+        var body: some View {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(transaction.business_name?.isEmpty == false ? transaction.business_name! : transaction.effectiveCategoryName)
+                        .font(.body)
+                    HStack(spacing: 6) {
+                        Text(transaction.effectiveCategoryName)
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                        Text(transaction.accountDisplayName)
                             .font(.caption2)
                             .foregroundColor(.secondary)
                     }
-                    Spacer()
-                    VStack(alignment: .trailing, spacing: 2) {
-                        Text(formatAmount())
-                            .font(.headline)
-                            .monospacedDigit()
-                        Text(currencySymbol).font(.caption2).foregroundColor(.secondary)
-                    }
+                    Text(dateString(transaction.parsedDate))
+                        .font(.caption2)
+                        .foregroundColor(.secondary)
+                }
+                Spacer()
+                VStack(alignment: .trailing, spacing: 2) {
+                    Text(formatAmount())
+                        .font(.headline)
+                        .monospacedDigit()
+                    Text(currencySymbol).font(.caption2).foregroundColor(.secondary)
                 }
             }
+        }
 
         private func formatAmount() -> String {
             let value = abs(transaction.normalizedAmount)
@@ -1409,7 +1434,6 @@ struct CashflowCardsView: View {
             formatter.dateFormat = "d.M.yy"
             return formatter.string(from: date)
         }
-    }
     }
 
     private struct AccountStatusSheet: View {
