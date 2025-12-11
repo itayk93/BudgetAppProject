@@ -22,6 +22,7 @@ struct CashflowCardsView: View {
     @State private var showingEditTargetSheet = false
     @State private var selectedCategoryForEdit: CashFlowDashboardViewModel.CategorySummary?
     @State private var editingTargetValue: Double?
+    @State private var selectedTransactionForEdit: Transaction?
 
     @State private var showingEditBudgetSheet = false
     @State private var selectedCategoryForBudgetEdit: CashFlowDashboardViewModel.CategorySummary?
@@ -136,6 +137,37 @@ struct CashflowCardsView: View {
             }
             .sheet(isPresented: $showingPendingTransactionsSheet) {
                 PendingTransactionsReviewView()
+            }
+            .overlay(alignment: .bottom) {
+                if let transaction = selectedTransactionForEdit {
+                    ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation {
+                                    selectedTransactionForEdit = nil
+                                }
+                            }
+                        
+                        EditTransactionView(
+                            transaction: transaction,
+                            onSave: { _ in
+                                selectedTransactionForEdit = nil
+                            },
+                            onDelete: { tx in
+                                Task {
+                                    await vm.deleteTransaction(tx)
+                                    selectedTransactionForEdit = nil
+                                }
+                            },
+                            onCancel: {
+                                selectedTransactionForEdit = nil
+                            }
+                        )
+                        .transition(.move(edge: .bottom))
+                    }
+                    .zIndex(100)
+                }
             }
         }
         .onAppear {
@@ -309,17 +341,23 @@ struct CashflowCardsView: View {
             CategorySummaryCard(
                 category: cat,
                 currency: vm.selectedCashFlow?.currency ?? "ILS",
-                isWeekly: vm.isWeeklyCategory(cat.name),
-                onEdit: vm.isCurrentMonth ? {
-                    editingTargetValue = cat.target
+                isWeekly: true,
+                onEdit: {
                     selectedCategoryForEdit = cat
+                    editingTargetValue = cat.target
                     showingEditTargetSheet = true
-                } : nil,
-                onEditBudget: vm.isCurrentMonth ? {
-                    editingBudgetValue = cat.target
+                },
+                onEditBudget: {
                     selectedCategoryForBudgetEdit = cat
-                    showingEditTargetSheet = true
-                } : nil
+                    editingBudgetValue = cat.budget ?? 0
+                    showingEditBudgetSheet = true
+                },
+                onPlanAhead: {
+                    showingPlanAheadSheet = true
+                },
+                onEditTransaction: { t in
+                    selectedTransactionForEdit = t
+                }
             )
         }
     }
@@ -350,7 +388,7 @@ struct CashflowCardsView: View {
                     .foregroundColor(totals.net >= 0 ? .green : .red)
                 Spacer()
             }
-            .environment(\.layoutDirection, .leftToRight)
+
             Divider()
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
@@ -359,7 +397,7 @@ struct CashflowCardsView: View {
                         Text(formatNumber(totals.income)).foregroundColor(.green).monospacedDigit()
                         Text("₪").font(.caption).foregroundColor(.green)
                     }
-                    .environment(\.layoutDirection, .leftToRight)
+
                 }
                 Spacer()
                 VStack(alignment: .leading, spacing: 4) {
@@ -369,7 +407,7 @@ struct CashflowCardsView: View {
                         Text("₪").font(.caption)
                     }
                     .foregroundColor(.primary)
-                    .environment(\.layoutDirection, .leftToRight)
+
                 }
             }
         }
@@ -714,7 +752,7 @@ struct CashflowCardsView: View {
                     Text(format(value)).font(.headline).monospacedDigit()
                     Text(currencySymbol).font(.caption2)
                 }
-                .environment(\.layoutDirection, .leftToRight)
+
             }
         }
 
@@ -748,7 +786,7 @@ struct CashflowCardsView: View {
                             Text(format(value)).font(.subheadline).monospacedDigit()
                             Text(currencySymbol).font(.caption2)
                         }
-                        .environment(\.layoutDirection, .leftToRight)
+
                     }
                 }
             }
@@ -802,7 +840,7 @@ struct CashflowCardsView: View {
                                 Text(format(abs(actual))).font(.headline).monospacedDigit()
                                 Text(currencySymbol).font(.caption2)
                             }
-                            .environment(\.layoutDirection, .leftToRight)
+
                         }
                         Spacer()
                         Text(actual >= 0 ? "חיובי" : "שלילי")
@@ -838,7 +876,7 @@ struct CashflowCardsView: View {
                 Text(format(amount)).monospacedDigit()
                 Text(currencySymbol).font(.title3)
             }
-            .environment(\.layoutDirection, .leftToRight)
+
         }
 
         private var accessibilityValueText: String {
@@ -1024,7 +1062,7 @@ struct CashflowCardsView: View {
                         Text(format(value)).font(.headline).foregroundColor(color).monospacedDigit()
                         Text(currencySymbol).font(.caption2).foregroundColor(color)
                     }
-                    .environment(\.layoutDirection, .leftToRight)
+
                 }
             }
 
@@ -1314,14 +1352,18 @@ struct CashflowCardsView: View {
         var body: some View {
             NavigationStack {
                 List {
-                    Section(header: Text("תוצאות (\(results.count))")) {
+                    Section(header: Text("תוצאות (\(results.count))").frame(maxWidth: .infinity, alignment: .trailing)) {
                         if !isReadyToSearch {
                             Text("הקלד לפחות שתי אותיות כדי להתחיל לחפש")
                                 .font(.footnote)
                                 .foregroundColor(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .multilineTextAlignment(.trailing)
                         } else if results.isEmpty {
                             Text("לא נמצאו עסקאות")
                                 .font(.footnote)
+                                .frame(maxWidth: .infinity, alignment: .trailing)
+                                .multilineTextAlignment(.trailing)
                         }
 
                         ForEach(results, id: \.id) { tx in
@@ -1337,16 +1379,26 @@ struct CashflowCardsView: View {
                         Button("סגור") { dismiss() }
                     }
                 }
+                .environment(\.layoutDirection, .rightToLeft) // Fix for RTL alignment
                 .onAppear {
                     AppLogger.log("🔍 TransactionSearchSheet appeared (filter active=\(filter.isActive))")
                 }
-                .onChange(of: searchText) { newValue in
+                .onChange(of: vm.errorMessage) { _, newValue in
+                    if let newValue {
+                        AppLogger.log("⚠️ VM error message: \(newValue)", force: true)
+                    }
+                }
+                .onChange(of: searchText) { _, newValue in
                     AppLogger.log("🔍 TransactionSearchSheet search text updated: '\(newValue)'")
                     debounceTask?.cancel()
                     let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
                     debounceTask = Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: debounceDelay)
-                        debouncedQuery = trimmed
+                        do {
+                            try await Task.sleep(nanoseconds: debounceDelay)
+                            debouncedQuery = trimmed
+                        } catch {
+                            // Task cancelled, do not update query
+                        }
                     }
                 }
                 .onDisappear {
@@ -1603,7 +1655,7 @@ private extension CashflowCardsView {
                             Text(formatNumber(vm.excludedIncomeTotal)).font(.headline).foregroundColor(.green).monospacedDigit()
                             Text("₪").font(.caption).foregroundColor(.green)
                         }
-                        .environment(\.layoutDirection, .leftToRight)
+
                     }
                     Spacer()
                 }
@@ -1636,7 +1688,8 @@ private extension CashflowCardsView {
     }
 
     private func groupSection(group: CashFlowDashboardViewModel.GroupSummary, accent: Color) -> some View {
-        GroupSectionCard(group: group, accent: accent, currency: vm.selectedCashFlow?.currency ?? "ILS")
+        GroupSectionCard(group: group, accent: accent, currency: vm.selectedCashFlow?.currency ?? "ILS", onEditTransaction: { t in selectedTransactionForEdit = t })
+    }
     }
 
     private func transactionRow(_ t: Transaction, currency: String, highlight: Color) -> some View {
@@ -1647,9 +1700,13 @@ private extension CashflowCardsView {
                     Text(formatNumber(abs(t.normalizedAmount))).foregroundColor(highlight).monospacedDigit()
                     Text("₪").font(.caption).foregroundColor(highlight)
                 }
-                .environment(\.layoutDirection, .leftToRight).font(.headline).frame(minWidth: 80, alignment: .leading)
+                .font(.headline).frame(minWidth: 80, alignment: .leading)
                 Spacer()
-                NavigationLink(destination: EditTransactionDestination(transaction: t)) {
+                Button {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                        selectedTransactionForEdit = t
+                    }
+                } label: {
                     Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                 }
             }
@@ -1745,7 +1802,7 @@ private extension CashflowCardsView {
                                     Text(formatAmount(expectedValue)).font(.headline).foregroundColor(accent).monospacedDigit()
                                     Text("₪").font(.caption).foregroundColor(accent)
                                 }
-                                .environment(\.layoutDirection, .leftToRight)
+
                             }
                             Spacer()
                         }
@@ -1809,6 +1866,8 @@ private extension CashflowCardsView {
         let isWeekly: Bool
         let onEdit: (() -> Void)?
         let onEditBudget: (() -> Void)?
+        let onPlanAhead: (() -> Void)?
+        let onEditTransaction: (Transaction) -> Void
         @State private var expandedWeek: Int? = nil
         @State private var showMonthlyTransactions = false
 
@@ -1847,7 +1906,7 @@ private extension CashflowCardsView {
                                     Text(formatAmount(category.totalSpent)).font(.headline).foregroundColor(accentColor).monospacedDigit()
                                     Text("₪").font(.caption).foregroundColor(accentColor)
                                 }
-                                .environment(\.layoutDirection, .leftToRight)
+
                             }
                             Spacer()
                         }
@@ -1955,7 +2014,7 @@ private extension CashflowCardsView {
                                     Text("₪").font(.caption2).foregroundColor(.secondary)
                                 }
                             }
-                            .environment(\.layoutDirection, .leftToRight)
+
                         }
                         Divider()
                         DisclosureGroup(isExpanded: $showMonthlyTransactions) {
@@ -2049,9 +2108,13 @@ private extension CashflowCardsView {
                         Text(currencySymbol(for: currency)).font(.caption).foregroundColor(highlight)
                         Text(formatAmount(abs(t.normalizedAmount))).font(.subheadline).foregroundColor(highlight).monospacedDigit()
                     }
-                    .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
+                    .frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: EditTransactionDestination(transaction: t)) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            onEditTransaction(t)
+                        }
+                    } label: {
                         Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                     }
                 }
@@ -2070,9 +2133,13 @@ private extension CashflowCardsView {
                         Text(formatAmount(abs(t.normalizedAmount))).font(.subheadline).foregroundColor(.blue).monospacedDigit()
                         Text("₪").font(.caption).foregroundColor(.blue)
                     }
-                    .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
+                    .frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: EditTransactionDestination(transaction: t)) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            onEditTransaction(t)
+                        }
+                    } label: {
                         Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                     }
                 }
@@ -2177,7 +2244,7 @@ private extension CashflowCardsView {
                     .minimumScaleFactor(0.8)
             }
             .foregroundColor(color)
-            .environment(\.layoutDirection, .leftToRight)
+
         }
     }
 
@@ -2198,17 +2265,18 @@ private extension CashflowCardsView {
         let group: CashFlowDashboardViewModel.GroupSummary
         let accent: Color
         let currency: String
+        let onEditTransaction: (Transaction) -> Void
         var body: some View {
             SectionCard(title: group.title, accent: accent, expectedLabel: "צפוי לצאת", expectedValue: group.target, actualLabel: "יצא", actualValue: group.totalSpent, currency: currency) {
                 VStack(spacing: 0) {
                     HStack {
                         Spacer()
-                        Text("יצא").font(.footnote).foregroundColor(.secondary).frame(width: 90, alignment: .leading).environment(\.layoutDirection, .leftToRight)
-                        Text("צפוי לצאת").font(.footnote).foregroundColor(.secondary).frame(width: 90, alignment: .leading).environment(\.layoutDirection, .leftToRight)
+                        Text("יצא").font(.footnote).foregroundColor(.secondary).frame(width: 90, alignment: .leading)
+                        Text("צפוי לצאת").font(.footnote).foregroundColor(.secondary).frame(width: 90, alignment: .leading)
                     }
                     .padding(.horizontal, 12).padding(.bottom, 6)
                     ForEach(group.members, id: \.id) { member in
-                        CompactCategoryRow(category: member, currency: currency, onEdit: nil, onEditBudget: nil)
+                        CompactCategoryRow(category: member, currency: currency, onEdit: nil, onEditBudget: nil, onEditTransaction: onEditTransaction)
                         Divider().padding(.leading, 12)
                     }
                 }
@@ -2221,6 +2289,7 @@ private extension CashflowCardsView {
         let currency: String
         let onEdit: (() -> Void)?
         let onEditBudget: (() -> Void)?
+        let onEditTransaction: (Transaction) -> Void
         @State private var open = false
         var body: some View {
             VStack(spacing: 8) {
@@ -2229,8 +2298,8 @@ private extension CashflowCardsView {
                         Image(systemName: open ? "chevron.up" : "chevron.down").foregroundColor(.secondary)
                         Text(category.name).font(.subheadline)
                         Spacer()
-                        HStack(spacing: 4) { Text(formatAmount(category.totalSpent)).foregroundColor(.pink).monospacedDigit(); Text("₪").font(.caption).foregroundColor(.pink) }.environment(\.layoutDirection, .leftToRight).frame(width: 90, alignment: .leading)
-                        HStack(spacing: 4) { Text(formatAmount(category.target ?? 0)).foregroundColor(.secondary).monospacedDigit(); Text("₪").font(.caption).foregroundColor(.secondary) }.environment(\.layoutDirection, .leftToRight).frame(width: 90, alignment: .leading)
+                        HStack(spacing: 4) { Text(formatAmount(category.totalSpent)).foregroundColor(.pink).monospacedDigit(); Text("₪").font(.caption).foregroundColor(.pink) }.frame(width: 90, alignment: .leading)
+                        HStack(spacing: 4) { Text(formatAmount(category.target ?? 0)).foregroundColor(.secondary).monospacedDigit(); Text("₪").font(.caption).foregroundColor(.secondary) }.frame(width: 90, alignment: .leading)
                     }
                 }
                 .buttonStyle(.plain)
@@ -2246,9 +2315,13 @@ private extension CashflowCardsView {
                         Text(formatAmount(abs(t.normalizedAmount))).font(.subheadline).foregroundColor(.pink).monospacedDigit()
                         Text("₪").font(.caption).foregroundColor(.pink)
                     }
-                    .environment(\.layoutDirection, .leftToRight).frame(minWidth: 80, alignment: .leading)
+                    .frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: EditTransactionDestination(transaction: t)) {
+                    Button {
+                        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                            onEditTransaction(t)
+                        }
+                    } label: {
                         Image(systemName: "ellipsis").foregroundColor(.secondary).frame(width: 30)
                     }
                 }
@@ -2270,15 +2343,20 @@ struct GroupTransactionRow: View {
         let transaction: Transaction
         let accent: Color
         let currency: String
+        let onEditTransaction: (Transaction) -> Void
         var body: some View {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(alignment: .firstTextBaseline, spacing: 12) {
                     Text(dateString(transaction.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
                     Text(formatAmount(abs(transaction.normalizedAmount))).font(.subheadline).foregroundColor(accent).monospacedDigit().frame(minWidth: 80, alignment: .leading)
                     Spacer()
-                    NavigationLink(destination: EditTransactionDestination(transaction: transaction)) {
-                        Image(systemName: "ellipsis").foregroundColor(.secondary)
-                    }
+                        Button {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                onEditTransaction(transaction)
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis").foregroundColor(.secondary)
+                        }
                 }
                 Text(transaction.business_name?.isEmpty == false ? transaction.business_name! : "—").font(.subheadline).foregroundColor(.primary).frame(maxWidth: .infinity, alignment: .leading)
                 if let note = transaction.notes, !note.isEmpty { Text(note).font(.footnote).foregroundColor(.secondary).frame(maxWidth: .infinity, alignment: .leading) }
@@ -2295,19 +2373,7 @@ struct GroupTransactionRow: View {
     }
 }
 
-private struct EditTransactionDestination: View {
-    @EnvironmentObject private var vm: CashFlowDashboardViewModel
-    let transaction: Transaction
 
-    var body: some View {
-        EditTransactionView(
-            transaction: transaction,
-            onSave: { _ in },
-            onDelete: { tx in Task { await vm.deleteTransaction(tx) } },
-            onCancel: {}
-        )
-    }
-}
 
 private struct WeeklyBudgetInfo: Equatable {
     let totalExpected: Double

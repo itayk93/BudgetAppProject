@@ -166,20 +166,20 @@ struct EditTransactionView: View {
                 .frame(width: 48, height: 5)
                 .padding(.top, 8)
 
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text(displayCategoryName)
                     .font(.subheadline.weight(.semibold))
                     .foregroundColor(.white.opacity(0.92))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
 
                 Text("\(currencySymbol(for: transaction.currency)) \(heroAmountText(abs(transaction.normalizedAmount)))")
                     .font(.system(size: 46, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-                    .multilineTextAlignment(.trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
 
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
                     if let businessLine = heroBusinessLine() {
                         Text(businessLine)
                     }
@@ -195,8 +195,8 @@ struct EditTransactionView: View {
                 }
                 .font(.footnote)
                 .foregroundColor(.white.opacity(0.9))
-                .frame(maxWidth: .infinity, alignment: .trailing)
-                .multilineTextAlignment(.trailing)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
             }
             .padding(.horizontal, 20)
             .padding(.top, 12)
@@ -207,7 +207,7 @@ struct EditTransactionView: View {
     }
 
     private var actionsSection: some View {
-        VStack(alignment: .trailing, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             notesSection
             categorySection
             splitTransactionSection
@@ -371,25 +371,25 @@ struct EditTransactionView: View {
     // MARK: - Sections
 
     private var categorySection: some View {
-        VStack(alignment: .trailing, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     showCategorySelector.toggle()
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Spacer()
-                    Text("להזיז את ההוצאה")
-                        .font(.body.weight(.semibold))
                     Image(systemName: "arrowshape.turn.up.right")
                         .font(.title3)
+                    Text("להזיז את ההוצאה")
+                        .font(.body.weight(.semibold))
+                    Spacer()
                 }
             }
             .buttonStyle(.plain)
             .actionCard()
 
             if showCategorySelector {
-                VStack(alignment: .trailing, spacing: 10) {
+                VStack(alignment: .leading, spacing: 10) {
                     Text("בחר קטגוריה חדשה")
                         .font(.subheadline.weight(.semibold))
 
@@ -397,18 +397,18 @@ struct EditTransactionView: View {
                         .padding(10)
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(.leading)
 
                     ForEach(filteredCategories, id: \.self) { category in
                         Button {
                             selectCategory(category)
                         } label: {
                             HStack {
-                                Spacer()
-                                Text(category)
-                                    .frame(maxWidth: .infinity, alignment: .trailing)
                                 Image(systemName: "chevron.left")
                                     .font(.footnote)
+                                Text(category)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                Spacer()
                             }
                         }
                         .buttonStyle(.plain)
@@ -452,33 +452,33 @@ struct EditTransactionView: View {
     }
 
     private var notesSection: some View {
-        VStack(alignment: .trailing, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     noteExpanded.toggle()
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Spacer()
-                    Text("להוסיף הערה")
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.primary)
                     Image(systemName: "square.and.pencil")
                         .font(.title3)
                         .foregroundColor(.primary)
+                    Text("להוסיף הערה")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
                 }
             }
             .buttonStyle(.plain)
             .actionCard()
 
             if noteExpanded {
-                VStack(alignment: .trailing, spacing: 10) {
+                VStack(alignment: .leading, spacing: 10) {
                     TextEditor(text: $notes)
                         .frame(minHeight: 120, alignment: .top)
                         .padding(12)
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(.leading)
                         .onChange(of: notes) { _, _ in
                             hasPendingChanges = true
                         }
@@ -518,16 +518,16 @@ struct EditTransactionView: View {
     }
 
     private var splitTransactionSection: some View {
-        VStack(alignment: .trailing, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Button {
                 showSplitTransaction = true
             } label: {
                 HStack(spacing: 8) {
-                    Spacer()
-                    Text("לפצל את ההוצאה")
-                        .font(.body.weight(.semibold))
                     Image(systemName: "scissors")
                         .font(.title3)
+                    Text("לפצל את ההוצאה")
+                        .font(.body.weight(.semibold))
+                    Spacer()
                 }
             }
             .buttonStyle(.plain)
@@ -536,7 +536,7 @@ struct EditTransactionView: View {
     }
 
     private func flowMonthSection() -> some View {
-        VStack(alignment: .trailing, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Button {
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     if moveFlowMonthExpanded {
@@ -549,18 +549,18 @@ struct EditTransactionView: View {
                 }
             } label: {
                 HStack(spacing: 8) {
-                    Spacer()
-                    Text("העברת תזרים לחודש אחר")
-                        .font(.body.weight(.semibold))
                     Image(systemName: "calendar.badge.plus")
                         .font(.title3)
+                    Text("העברת תזרים לחודש אחר")
+                        .font(.body.weight(.semibold))
+                    Spacer()
                 }
             }
             .buttonStyle(.plain)
             .actionCard()
 
             if moveFlowMonthExpanded {
-                VStack(alignment: .trailing, spacing: 12) {
+                VStack(alignment: .leading, spacing: 12) {
                     Text("חודש תזרים")
                         .font(.subheadline)
 
@@ -571,13 +571,14 @@ struct EditTransactionView: View {
                     )
                     .datePickerStyle(.wheel)
                     .labelsHidden()
+                    .environment(\.locale, Locale(identifier: "he_IL"))
                     .onChange(of: moveFlowMonthDate) { _, _ in
                         hasPendingChanges = true
                     }
 
                     Text(formattedFlowMonth(from: moveFlowMonthDate))
                         .font(.subheadline.monospacedDigit())
-                        .frame(maxWidth: .infinity, alignment: .trailing)
+                        .frame(maxWidth: .infinity, alignment: .leading)
 
                     HStack(spacing: 12) {
                         Button("בטל") {
@@ -611,19 +612,19 @@ struct EditTransactionView: View {
     }
 
     private var deleteTransactionSection: some View {
-        VStack(alignment: .trailing, spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
             Button(action: {
                 AppLogger.log("🗑️ Delete button tapped for tx \(transaction.id)", force: true)
                 showDeleteConfirmation = true
             }) {
                 HStack(spacing: 8) {
-                    Spacer()
-                    Text("למחוק את העסקה")
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.red.opacity(0.85))
                     Image(systemName: "trash")
                         .font(.title3)
                         .foregroundColor(.red.opacity(0.7))
+                    Text("למחוק את העסקה")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.red.opacity(0.85))
+                    Spacer()
                 }
             }
             .buttonStyle(.plain)

@@ -118,6 +118,11 @@ struct PendingTransactionsReviewView: View {
     private var contentView: some View {
         ZStack(alignment: Alignment.top) {
             Color(UIColor.systemGray5).ignoresSafeArea()
+                .onTapGesture {
+                    if heroNoteExpanded {
+                        withAnimation { heroNoteExpanded = false }
+                    }
+                }
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
                     heroSection
@@ -234,8 +239,12 @@ struct PendingTransactionsReviewView: View {
         .rotationEffect(.degrees(Double(dragOffset.width / 10)))
         .gesture(heroDragGesture(for: transaction))
         .onTapGesture {
-            guard viewModel.processingTransactionID == nil && pendingCategoryChange == nil else { return }
-            pendingCategoryChange = transaction
+            if heroNoteExpanded {
+                withAnimation { heroNoteExpanded = false }
+            } else {
+                guard viewModel.processingTransactionID == nil && pendingCategoryChange == nil else { return }
+                pendingCategoryChange = transaction
+            }
         }
         .allowsHitTesting(viewModel.processingTransactionID == nil && pendingCategoryChange == nil)
         .onAppear {
@@ -325,7 +334,7 @@ struct PendingTransactionsReviewView: View {
                         .padding(12)
                         .background(Color(UIColor.systemGray5).opacity(0.6))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                        .multilineTextAlignment(.trailing)
+                        .multilineTextAlignment(.leading)
                 }
                 Button {
                     Task { @MainActor in
@@ -504,18 +513,10 @@ struct PendingTransactionsReviewView: View {
         let remaining = max(viewModel.transactions.count - 1, 0)
         let isProcessing = viewModel.processingTransactionID == transaction.id
         return VStack(spacing: 16) {
-            VStack(spacing: 4) {
-                Text("נותרו עוד")
-                    .font(.footnote)
-                    .foregroundColor(.secondary)
-                Text("\(remaining)")
-                    .font(.largeTitle)
-                    .fontWeight(.semibold)
-                Text("עסקאות ממתינות")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            .frame(maxWidth: .infinity)
+            Text("נותרו עוד \(remaining) עסקאות ממתינות")
+                .font(.footnote)
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity)
 
             HStack(spacing: 12) {
                 footerActionButton(

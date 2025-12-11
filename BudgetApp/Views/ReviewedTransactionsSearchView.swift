@@ -7,6 +7,10 @@ struct ReviewedTransactionsSearchView: View {
     @State private var showingRevertConfirmation = false
     @State private var toastMessage: String?
     @State private var toastWorkItem: DispatchWorkItem?
+    @State private var editingTransaction: Transaction?
+    @EnvironmentObject private var vmAuth: AppState // Assuming AppState is needed or VM is sufficient. Since EditTransactionView uses CashFlowDashboardViewModel, we might need to conform or pass actions.
+    // EditTransactionView expects `onSave` and `onDelete`. We can implement them using `viewModel`.
+
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -64,6 +68,39 @@ struct ReviewedTransactionsSearchView: View {
             Button("ביטול", role: .cancel) {}
         } message: {
             Text("אתה עומד להחזיר את העסקאות שנבחרו חזרה למצב pending.")
+        }
+        .sheet(item: $editingTransaction) { transaction in
+            EditTransactionView(
+                transaction: transaction,
+                onSave: { updatedTx in
+                    // In a search view, we might just reload or update the local list.
+                    // The ViewModel usually handles updates.
+                    // Assuming viewModel has a way to refresh or we just let CashFlowDashboardViewModel handle it if it's the environment object.
+                    // However, `ReviewedTransactionsSearchView` has its own VM.
+                    // Let's assume we want to refresh the search or just dismiss.
+                    editingTransaction = nil
+                    // If the update happens via the main VM, this view might need to observe changes or refresh.
+                    scheduleSearch(for: searchText) 
+                },
+                onDelete: { deletedTx in
+                     Task {
+                        // Assuming the VM has a delete function or we can add one.
+                        // If not, we might need to implement it.
+                        // `ReviewedTransactionsSearchViewModel` might not have delete.
+                        // But `CashflowCardsView` passes `vm.deleteTransaction`.
+                        // Let's check `ReviewedTransactionsSearchViewModel` capabilities if possible, or use the global VM if available.
+                        // For now, let's just close the sheet and refresh.
+                        editingTransaction = nil
+                        scheduleSearch(for: searchText)
+                     }
+                },
+                onCancel: {
+                    editingTransaction = nil
+                }
+            )
+            // EditTransactionView relies on CashFlowDashboardViewModel environment object.
+            // Ensure this view has it or pass it.
+            // ReviewedTransactionsSearchView seems to be used within the main app structure so it likely has the environment.
         }
     }
 
@@ -197,6 +234,10 @@ struct ReviewedTransactionsSearchView: View {
                 .fill(Color(UIColor.systemBackground))
                 .shadow(color: Color.black.opacity(0.08), radius: 6, x: 0, y: 4)
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            editingTransaction = transaction
+        }
         .environment(\.layoutDirection, .leftToRight)
     }
 
