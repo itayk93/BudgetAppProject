@@ -21,6 +21,14 @@ Follow these rules **exactly** whenever generating or modifying Swift/SwiftUI co
 
 ---
 
+# 0. Branch & Push Policy
+
+* Work directly on `main` unless explicitly told otherwise.
+* Push commits to `origin/main` (no long-lived feature branches).
+* If a PR already exists, still land fixes on `main` as requested and note it in the summary.
+
+---
+
 # 1. Minimal Changes Only
 
 ### ✅ Allowed
