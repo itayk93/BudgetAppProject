@@ -11,11 +11,11 @@ struct SupabaseCredentials {
             let rawURL = SupabaseCredentials.value(for: "SUPABASE_URL"),
             let baseURL = URL(string: rawURL.trimmingCharacters(in: .whitespacesAndNewlines))
         else {
-            print("❌ [SUPABASE CREDS] No SUPABASE_URL found")
+            AppLogger.log("❌ [SUPABASE CREDS] No SUPABASE_URL found")
             return nil
         }
         if SupabaseCredentials.isPlaceholderURL(rawURL) {
-            print("❌ [SUPABASE CREDS] SUPABASE_URL is still a placeholder (\(rawURL)). Please set the real project URL.")
+            AppLogger.log("❌ [SUPABASE CREDS] SUPABASE_URL is still a placeholder (\(rawURL)). Please set the real project URL.")
             return nil
         }
         let rest = baseURL.appendingPathComponent("rest/v1")
@@ -32,7 +32,7 @@ struct SupabaseCredentials {
             .first { !$0.isEmpty && !SupabaseCredentials.isPlaceholderKey($0) }
 
         guard let key, !key.isEmpty else {
-            print("❌ [SUPABASE CREDS] No API key found (SECRET / SERVICE_ROLE / ANON all missing)")
+            AppLogger.log("❌ [SUPABASE CREDS] No API key found (SECRET / SERVICE_ROLE / ANON all missing)")
             return nil
         }
 
@@ -46,7 +46,7 @@ struct SupabaseCredentials {
         } else {
             keySource = "UNKNOWN"
         }
-        print("🔐 [SUPABASE CREDS] Using key from \(keySource), prefix=\(key.prefix(8))")
+        AppLogger.log("🔐 [SUPABASE CREDS] Using key from \(keySource), prefix=\(key.prefix(8))")
 
         return SupabaseCredentials(restURL: rest, apiKey: key)
     }
@@ -137,106 +137,163 @@ final class SupabaseTransactionsReviewService {
         self.isoFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     }
 
-    func fetchPendingTransactions(for userID: String, hoursBack: Double = 48) async throws -> [Transaction] {
-        print("🔍 [DEBUG] Fetching pending transactions for user_id: \(userID), looking back \(hoursBack) hours")
+    func fetchPendingTransactions(for userID: String, hoursBack: Double = 168) async throws -> [Transaction] {
+        AppLogger.log("🔍 [DEBUG] Fetching pending transactions for user_id: \(userID), looking back \(hoursBack) hours")
         let now = Date()
         let cutoffDate = now.addingTimeInterval(-(hoursBack * 3600))
 
-        // Save cutoff for local filtering, not sent to Supabase
-        let nowString = isoFormatter.string(from: now)
-        let cutoffString = isoFormatter.string(from: cutoffDate)
-        print("🔍 [DEBUG] Current time: \(nowString), Cutoff time (local filter): \(cutoffString)")
+        // Format the cutoff date for database query
+        let dateFormatter = ISO8601DateFormatter()
+        dateFormatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        let cutoffDateString = dateFormatter.string(from: cutoffDate)
 
-        // ❗ Removed created_at filter from query – only user_id + status + order + limit
+        AppLogger.log("🔍 [DEBUG] Current time: \(dateFormatter.string(from: now)), Cutoff time: \(cutoffDateString)")
+
+        // Query with user_id, status, and created_at filters
         let query: [URLQueryItem] = [
             URLQueryItem(name: "select", value: "*"),
             URLQueryItem(name: "user_id", value: "eq.\(userID)"),
             URLQueryItem(name: "status", value: "eq.pending"),
+            URLQueryItem(name: "created_at", value: "gte.\(cutoffDateString)"), // Filter for last week at database level
             URLQueryItem(name: "order", value: "created_at.desc"),
             URLQueryItem(name: "limit", value: "200")
         ]
 
-        print("🔍 [DEBUG] Fetching with query: \(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: ", "))")
+        AppLogger.log("🔍 [DEBUG] Fetching with query: \(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: ", "))")
 
-        print("🔍 [DEBUG] Querying 'bank_scraper_pending_transactions' table directly")
+        AppLogger.log("🔍 [DEBUG] Querying 'bank_scraper_pending_transactions' table directly")
         let data = try await request(path: "bank_scraper_pending_transactions", queryItems: query)
-        print("🔍 [DEBUG] Raw response data length: \(data.count) bytes")
+        AppLogger.log("🔍 [DEBUG] Raw response data length: \(data.count) bytes")
         if let jsonString = String(data: data, encoding: .utf8) {
-            print("🔍 [DEBUG] Raw JSON response (first 300 chars): \(jsonString.prefix(300))")
+            AppLogger.log("🔍 [DEBUG] Raw JSON response (first 300 chars): \(jsonString.prefix(300))")
         }
 
         let rows = try decoder.decode([Transaction].self, from: data)
-        print("🔍 [DEBUG] Raw decode returned \(rows.count) transactions")
-
-        print("🔍 [DEBUG] About to filter \(rows.count) transactions")
-
-        // Filter in Swift – by suppress/split, currency, and by 48 hours, if createdAtDate exists
-        let filteredRows = rows.filter { tx in
-            let isSuppressed = tx.suppress_from_automation ?? false
-            let wasSplit = tx.manual_split_applied ?? false
-
-            // Filter out USD transactions (only ILS should be shown)
-            let trimmedCurrency = tx.currency?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
-            let isUSD = trimmedCurrency == "USD" || trimmedCurrency == "$" || trimmedCurrency?.contains("DOLLAR") == true
-
-            guard !isSuppressed && !wasSplit && !isUSD else {
-                if isSuppressed {
-                    print("🔍 [DEBUG] Filtering out tx \(tx.id) – suppressed: \(isSuppressed)")
-                } else if wasSplit {
-                    print("🔍 [DEBUG] Filtering out tx \(tx.id) – split: \(wasSplit)")
-                } else if isUSD {
-                    print("🔍 [DEBUG] Filtering out tx \(tx.id) – currency is USD: \(tx.currency ?? "N/A")")
-                }
-                return false
-            }
-
-            if let created = tx.createdAtDate {
-                let keep = created >= cutoffDate
-                if !keep {
-                    print("🔍 [DEBUG] Dropping tx \(tx.id) – created_at=\(created), before cutoff")
-                }
-                return keep
-            } else {
-                // If no date – don't throw away, to avoid disappearing due to parse issues
-                print("⚠️ [DEBUG] tx \(tx.id) has no createdAtDate, keeping it")
-                return true
-            }
-        }
-
-        print("🔍 [DEBUG] Filtered from \(rows.count) to \(filteredRows.count) transactions")
-        for tx in filteredRows.prefix(3) {
-            print("✅ [DEBUG] Keeping tx id=\(tx.id), business_name=\(tx.business_name ?? "N/A")")
-        }
-
+        AppLogger.log("🔍 [DEBUG] Raw decode returned \(rows.count) transactions")
+        let filteredRows = filterAutomatedTransactions(rows)
         return filteredRows
     }
 
     func fetchCategoryOptions(for userID: String) async throws -> [TransactionCategory] {
-        print("🔍 [DEBUG] Fetching category options for user_id: \(userID)")
+        AppLogger.log("🔍 [DEBUG] Fetching category options for user_id: \(userID)")
         struct CategoryOrderRow: Decodable {
             let id: String
             let category_name: String?
             let display_order: Int?
         }
+
         let query: [URLQueryItem] = [
             URLQueryItem(name: "select", value: "id,category_name,display_order"),
             URLQueryItem(name: "user_id", value: "eq.\(userID)"),
             URLQueryItem(name: "order", value: "display_order.asc"),
             URLQueryItem(name: "limit", value: "1000")
         ]
-        print("🔍 [DEBUG] Fetching categories with query: \(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: ", "))")
-        let data = try await request(path: "category_order", queryItems: query)
-        let rows = try decoder.decode([CategoryOrderRow].self, from: data)
-        print("🔍 [DEBUG] Raw category decode returned \(rows.count) rows")
-        let categories = rows.compactMap { row -> TransactionCategory? in
-            guard let name = row.category_name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
-                return nil
+        AppLogger.log("🔍 [DEBUG] Fetching categories with query: \(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: ", "))")
+
+        let supabaseCategories: [TransactionCategory]
+        do {
+            let data = try await request(path: "category_order", queryItems: query)
+            let rows = try decoder.decode([CategoryOrderRow].self, from: data)
+            AppLogger.log("🔍 [DEBUG] Raw category decode returned \(rows.count) rows")
+            supabaseCategories = rows.compactMap { row -> TransactionCategory? in
+                guard let name = row.category_name?.trimmingCharacters(in: .whitespacesAndNewlines), !name.isEmpty else {
+                    return nil
+                }
+                let displayOrder = row.display_order ?? Int.max
+                return TransactionCategory(id: row.id, name: name, displayOrder: displayOrder)
             }
-            let displayOrder = row.display_order ?? Int.max
-            return TransactionCategory(id: row.id, name: name, displayOrder: displayOrder)
+        } catch {
+            AppLogger.log("❌ [DEBUG] Failed to fetch categories from Supabase: \(error). Trying backend fallback.")
+            let fallback = await fetchCategoriesFromBackend()
+            if !fallback.isEmpty {
+                return fallback
+            }
+            throw error
         }
-        print("🔍 [DEBUG] Final categories count: \(categories.count)")
-        return categories.sorted { $0.displayOrder < $1.displayOrder }
+
+        let sortedSupabase = sortCategories(supabaseCategories)
+        AppLogger.log("🔍 [DEBUG] Supabase categories count after sorting: \(sortedSupabase.count)")
+
+        // If Supabase returned only a handful of categories, merge with backend list
+        if sortedSupabase.count < 3 {
+            AppLogger.log("⚠️ [DEBUG] Supabase returned few categories (\(sortedSupabase.count)). Fetching fallback from backend.")
+            let fallback = await fetchCategoriesFromBackend()
+            guard !fallback.isEmpty else {
+                return sortedSupabase
+            }
+            let existingNames = Set(sortedSupabase.map { $0.name })
+            let merged = sortedSupabase + fallback.filter { !existingNames.contains($0.name) }
+            let finalList = sortCategories(merged)
+            AppLogger.log("✅ [DEBUG] Returning merged category list: \(finalList.count) total")
+            return finalList
+        }
+
+        return sortedSupabase
+    }
+
+    func fetchReviewedTransactions(
+        for userID: String,
+        businessName searchTerm: String?,
+        limit: Int = 1_000_000
+    ) async throws -> [Transaction] {
+        AppLogger.log("🔍 [DEBUG] Fetching reviewed transactions for user_id: \(userID)")
+        var query: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "*"),
+            URLQueryItem(name: "user_id", value: "eq.\(userID)"),
+            URLQueryItem(name: "status", value: "eq.reviewed"),
+            URLQueryItem(name: "order", value: "payment_date.desc"),
+            URLQueryItem(name: "limit", value: "\(limit)")
+        ]
+
+        if let term = searchTerm?.trimmingCharacters(in: .whitespacesAndNewlines), !term.isEmpty {
+            let ilike = "ilike.*\(term)*"
+            query.append(URLQueryItem(name: "business_name", value: ilike))
+            AppLogger.log("🔍 [DEBUG] Applying business_name filter: \(ilike)")
+        }
+
+        AppLogger.log("🔍 [DEBUG] Fetching with query: \(query.map { "\($0.name)=\($0.value ?? "")" }.joined(separator: ", "))")
+
+        let pendingData = try await request(path: "bank_scraper_pending_transactions", queryItems: query)
+        let pendingRows = try decoder.decode([Transaction].self, from: pendingData)
+        AppLogger.log("🔍 [DEBUG] Raw decode returned \(pendingRows.count) reviewed transactions from 'bank_scraper_pending_transactions'")
+
+        var combinedRows = pendingRows
+        do {
+            let transactionsData = try await request(path: "transactions", queryItems: query)
+            let transactionsRows = try decoder.decode([Transaction].self, from: transactionsData)
+            AppLogger.log("🔍 [DEBUG] Also fetched \(transactionsRows.count) rows from 'transactions' table")
+            combinedRows.append(contentsOf: transactionsRows)
+        } catch {
+            AppLogger.log("⚠️ [DEBUG] Failed to fetch reviewed rows from 'transactions' table: \(error.localizedDescription)")
+        }
+
+        let filtered = filterAutomatedTransactions(combinedRows)
+        return filtered.sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
+    }
+
+    func revertTransactionsToPending(transactionIDs: [String]) async throws {
+        guard !transactionIDs.isEmpty else { return }
+        AppLogger.log("⚙️ [DEBUG] Reverting \(transactionIDs.count) transactions to pending")
+        let payload = TransactionUpdatePayload(
+            category_name: nil,
+            status: "pending",
+            reviewed_at: nil,
+            notes: nil,
+            flow_month: nil
+        )
+        let encoder = JSONEncoder()
+        let body = try encoder.encode(payload)
+        for id in transactionIDs {
+            let query = [URLQueryItem(name: "id", value: "eq.\(id)")]
+            let table = tableName(for: id)
+            _ = try await request(
+                path: table,
+                method: "PATCH",
+                queryItems: query,
+                body: body,
+                prefer: "return=minimal"
+            )
+        }
     }
 
     func markReviewed(transactionID: String, note: String? = nil) async throws {
@@ -282,7 +339,7 @@ final class SupabaseTransactionsReviewService {
     }
 
     func updateNoteOnly(transactionID: String, note: String?) async throws {
-        print("[DEBUG] updateNoteOnly() tx=\(transactionID), note=\(note ?? "nil")")
+        AppLogger.log("[DEBUG] updateNoteOnly() tx=\(transactionID), note=\(note ?? "nil")")
 
         var payload: [String: Any] = [:]
         if let note, !note.isEmpty {
@@ -291,19 +348,20 @@ final class SupabaseTransactionsReviewService {
             payload["notes"] = NSNull()
         }
 
-        print("[DEBUG] about to encode JSON body: \(payload)")
+        AppLogger.log("[DEBUG] about to encode JSON body: \(payload)")
         let body = try JSONSerialization.data(withJSONObject: payload, options: [])
         let query = [URLQueryItem(name: "id", value: "eq.\(transactionID)")]
 
-        print("[DEBUG] sending PATCH for tx \(transactionID)")
+        AppLogger.log("[DEBUG] sending PATCH for tx \(transactionID)")
+        let table = tableName(for: transactionID)
         _ = try await request(
-            path: "bank_scraper_pending_transactions",
+            path: table,
             method: "PATCH",
             queryItems: query,
             body: body,
             prefer: "return=minimal"
         )
-        print("[DEBUG] updateNoteOnly() finished for tx \(transactionID)")
+        AppLogger.log("[DEBUG] updateNoteOnly() finished for tx \(transactionID)")
     }
 
     func saveDefaultCategory(for userID: String, businessName: String, categoryName: String) async throws {
@@ -342,7 +400,7 @@ final class SupabaseTransactionsReviewService {
             )
         } catch SupabaseServiceError.server(let message) {
             if message.contains("duplicate key value") {
-                print("ℹ️ [SUPABASE] Hidden business already exists for \(businessName)")
+                AppLogger.log("ℹ️ [SUPABASE] Hidden business already exists for \(businessName)")
             } else {
                 throw SupabaseServiceError.server(message: message)
             }
@@ -350,6 +408,40 @@ final class SupabaseTransactionsReviewService {
     }
 
     // MARK: - Private helpers
+    private func fetchCategoriesFromBackend() async -> [TransactionCategory] {
+        do {
+            let apiClient = AppAPIClient(baseURL: AppConfig.baseURL)
+            let orders = try await CategoryOrderService(apiClient: apiClient).getCategoryOrders()
+            let mapped = orders.compactMap { order -> TransactionCategory? in
+                let name = order.categoryName.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard !name.isEmpty else { return nil }
+                return TransactionCategory(
+                    id: order.id ?? UUID().uuidString,
+                    name: name,
+                    displayOrder: order.displayOrder ?? Int.max
+                )
+            }
+            AppLogger.log("✅ [DEBUG] Backend fallback returned \(mapped.count) categories")
+            return sortCategories(mapped)
+        } catch {
+            AppLogger.log("❌ [DEBUG] Backend category fallback failed: \(error)")
+            return []
+        }
+    }
+
+    private func sortCategories(_ categories: [TransactionCategory]) -> [TransactionCategory] {
+        categories.sorted {
+            if $0.displayOrder == $1.displayOrder {
+                return $0.name < $1.name
+            }
+            return $0.displayOrder < $1.displayOrder
+        }
+    }
+
+    private func tableName(for transactionID: String) -> String {
+        let trimmed = transactionID.trimmingCharacters(in: .whitespacesAndNewlines)
+        return Int64(trimmed) != nil ? "bank_scraper_pending_transactions" : "transactions"
+    }
 
     private func update(
         transactionID: String,
@@ -369,8 +461,14 @@ final class SupabaseTransactionsReviewService {
         let encoder = JSONEncoder()
         let body = try encoder.encode(payload)
         let query = [URLQueryItem(name: "id", value: "eq.\(transactionID)")]
-        // Update the correct table - should be the same as the fetch table
-        _ = try await request(path: "bank_scraper_pending_transactions", method: "PATCH", queryItems: query, body: body, prefer: "return=minimal")
+        let table = tableName(for: transactionID)
+        _ = try await request(
+            path: table,
+            method: "PATCH",
+            queryItems: query,
+            body: body,
+            prefer: "return=minimal"
+        )
     }
 
     private func sanitize(_ note: String?) -> String? {
@@ -394,13 +492,37 @@ final class SupabaseTransactionsReviewService {
         let encoder = JSONEncoder()
         let body = try encoder.encode(payload)
         let query = [URLQueryItem(name: "id", value: "eq.\(transactionID)")]
-        _ = try await request(
-            path: "bank_scraper_pending_transactions",
-            method: "PATCH",
-            queryItems: query,
-            body: body,
-            prefer: "return=minimal"
-        )
+        let table = tableName(for: transactionID)
+        _ = try await request(path: table, method: "PATCH", queryItems: query, body: body, prefer: "return=minimal")
+    }
+
+    private func filterAutomatedTransactions(_ rows: [Transaction]) -> [Transaction] {
+        AppLogger.log("🔍 [DEBUG] About to filter \(rows.count) transactions for final cleanup")
+        let filteredRows = rows.filter { tx in
+            let isSuppressed = tx.suppress_from_automation ?? false
+            let wasSplit = tx.manual_split_applied ?? false
+
+            let trimmedCurrency = tx.currency?.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+            let isUSD = trimmedCurrency == "USD" || trimmedCurrency == "$" || trimmedCurrency?.contains("DOLLAR") == true
+
+            guard !isSuppressed && !wasSplit && !isUSD else {
+                if isSuppressed {
+                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – suppressed: \(isSuppressed)")
+                } else if wasSplit {
+                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – split: \(wasSplit)")
+                } else if isUSD {
+                    AppLogger.log("🔍 [DEBUG] Filtering out tx \(tx.id) – currency is USD: \(tx.currency ?? "N/A")")
+                }
+                return false
+            }
+
+            return true
+        }
+        AppLogger.log("🔍 [DEBUG] Filtered from \(rows.count) to \(filteredRows.count) transactions")
+        for tx in filteredRows.prefix(3) {
+            AppLogger.log("✅ [DEBUG] Keeping tx id=\(tx.id), business_name=\(tx.business_name ?? "N/A"), status=\(tx.status ?? "N/A")")
+        }
+        return filteredRows
     }
 
     private func request(

@@ -149,7 +149,10 @@ final class CashFlowDashboardViewModel: ObservableObject {
     // New: Pending transactions
     @Published var pendingTransactions: [Transaction] = []
     @Published var monthlyTargetGoal: Double?
-    
+    // Cache last supporting data so local edits can rebuild UI without refetching
+    private var lastMonthlyGoals: [MonthlyGoal] = []
+    private var lastEmptyCategories: [UserEmptyCategoryDisplay] = []
+
     struct AccountSnapshot: Identifiable, Hashable {
         let id: String
         let accountName: String
@@ -226,6 +229,20 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     /// name -> config (display order, shared mapping, weekly flag, etc.)
     private var categoryOrderMap: [String: CategoryOrder] = [:]
+
+    /// Sorted list of names from `category_order`, used for category suggestions.
+    var allCategoryOrderNames: [String] {
+        categoryOrderMap.values
+            .sorted { lhs, rhs in
+                let leftOrder = lhs.displayOrder ?? Int.max
+                let rightOrder = rhs.displayOrder ?? Int.max
+                if leftOrder != rightOrder {
+                    return leftOrder < rightOrder
+                }
+                return lhs.categoryName.localizedCompare(rhs.categoryName) == .orderedAscending
+            }
+            .map(\.categoryName)
+    }
 
     /// "YYYY-MM" key for the month currently shown in the cards screen
     private var currentMonthKey: String {
@@ -370,23 +387,11 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
             // Update global store
             transactions = transactionsAll
+            lastMonthlyGoals = monthlyGoals
+            lastEmptyCategories = emptyCategories
 
             // Compute income/expense totals over the period, excluding non-cashflow
-            let flowTx = transactionsAll.filter { !isExcluded($0) }
-            totalIncome = flowTx.reduce(0) { total, tx in
-                if tx.isIncome {
-                    return total + max(0, tx.normalizedAmount)
-                } else if tx.normalizedAmount > 0 {
-                    return total + tx.normalizedAmount
-                }
-                return total
-            }
-            totalExpenses = flowTx.reduce(0) { total, tx in
-                if tx.normalizedAmount < 0 {
-                    return total + abs(tx.normalizedAmount)
-                }
-                return total
-            }
+            recalculateTotals(for: transactionsAll)
 
             // Build charts across the whole window
             buildCharts(txs: transactionsAll, goals: monthlyGoals, emptyCategories: emptyCategories)
@@ -602,6 +607,118 @@ final class CashFlowDashboardViewModel: ObservableObject {
             return total
         }
         return (inc, exp, inc - exp)
+    }
+
+    // MARK: - Transaction mutations
+
+    func deleteTransaction(_ transaction: Transaction) async {
+        do {
+            _ = try await apiClient.send(
+                "transactions/\(transaction.id)",
+                method: "DELETE",
+                query: nil,
+                body: Optional<Data>.none
+            ) as AppEmptyResponse
+        } catch {
+            // Fallback to explicit /delete endpoint if needed by backend
+            struct DeleteBody: Encodable { let transaction_id: String }
+            do {
+                _ = try await apiClient.send(
+                    "transactions/\(transaction.id)/delete",
+                    method: "POST",
+                    query: nil,
+                    body: DeleteBody(transaction_id: transaction.id)
+                ) as AppEmptyResponse
+            } catch {
+                errorMessage = error.localizedDescription
+                return
+            }
+        }
+
+        transactions.removeAll { $0.id == transaction.id }
+        pendingTransactions.removeAll { $0.id == transaction.id }
+        rebuildAfterLocalChange()
+    }
+
+    func updateTransaction(
+        _ transaction: Transaction,
+        categoryName: String?,
+        notes: String?,
+        flowMonth: String?
+    ) async throws -> Transaction {
+        let trimmedCategory = categoryName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedFlowMonth = flowMonth?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let payload = TransactionUpdatePayload(
+            category_name: trimmedCategory?.isEmpty == true ? nil : trimmedCategory,
+            notes: notes,
+            flow_month: trimmedFlowMonth?.isEmpty == true ? nil : trimmedFlowMonth
+        )
+
+        do {
+            _ = try await apiClient.send(
+                "transactions/\(transaction.id)",
+                method: "PATCH",
+                query: nil,
+                body: payload
+            ) as AppEmptyResponse
+        } catch {
+            let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
+            let is404 = message.contains("404") || message.lowercased().contains("not found")
+            let numericId = Int64(transaction.id) != nil
+            let isPending = transaction.status?.lowercased() == "pending"
+            if is404, (numericId || isPending) {
+                if let supabase = SupabaseTransactionsReviewService() {
+                    if let flow = payload.flow_month {
+                        try await supabase.updateFlowMonth(transactionID: transaction.id, flowMonth: flow)
+                    }
+                    let targetCategory = payload.category_name ?? transaction.effectiveCategoryName
+                    try await supabase.updateCategory(transactionID: transaction.id, categoryName: targetCategory, note: notes)
+                } else {
+                    throw error
+                }
+            } else {
+                throw error
+            }
+        }
+
+        let effectiveCategory = payload.category_name ?? transaction.effectiveCategoryName
+        let updated = Transaction(
+            id: transaction.id,
+            effectiveCategoryName: effectiveCategory,
+            isIncome: transaction.isIncome,
+            business_name: transaction.business_name,
+            payment_method: transaction.payment_method,
+            createdAtDate: transaction.createdAtDate,
+            currency: transaction.currency,
+            absoluteAmount: transaction.absoluteAmount,
+            notes: notes ?? transaction.notes,
+            normalizedAmount: transaction.normalizedAmount,
+            excluded_from_flow: transaction.excluded_from_flow,
+            category_name: effectiveCategory,
+            category: transaction.category,
+            status: transaction.status,
+            user_id: transaction.user_id,
+            suppress_from_automation: transaction.suppress_from_automation,
+            manual_split_applied: transaction.manual_split_applied,
+            reviewed_at: transaction.reviewed_at,
+            source_type: transaction.source_type,
+            date: transaction.date,
+            payment_date: transaction.payment_date,
+            flow_month: payload.flow_month ?? transaction.flow_month
+        )
+
+        if let idx = transactions.firstIndex(where: { $0.id == transaction.id }) {
+            transactions[idx] = updated
+        } else {
+            transactions.append(updated)
+        }
+
+        if let idx = pendingTransactions.firstIndex(where: { $0.id == transaction.id }) {
+            pendingTransactions[idx] = updated
+        }
+
+        rebuildAfterLocalChange()
+        return updated
     }
 
     // MARK: - Internal builders
@@ -1045,5 +1162,54 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private static func numberOfWeeks(in date: Date, calendar: Calendar) -> Int {
         let range = calendar.range(of: .weekOfMonth, in: .month, for: date)
         return range?.count ?? 4
+    }
+
+    private func recalculateTotals(for txs: [Transaction]) {
+        let flowTx = txs.filter { !isExcluded($0) }
+        totalIncome = flowTx.reduce(0) { total, tx in
+            if tx.isIncome {
+                return total + max(0, tx.normalizedAmount)
+            } else if tx.normalizedAmount > 0 {
+                return total + tx.normalizedAmount
+            }
+            return total
+        }
+        totalExpenses = flowTx.reduce(0) { total, tx in
+            if tx.normalizedAmount < 0 {
+                return total + abs(tx.normalizedAmount)
+            }
+            return total
+        }
+    }
+
+    private func rebuildAfterLocalChange() {
+        recalculateTotals(for: transactions)
+        buildCharts(txs: transactions, goals: lastMonthlyGoals, emptyCategories: lastEmptyCategories)
+        buildCardsForCurrentMonth(all: transactions, emptyCategories: lastEmptyCategories)
+    }
+}
+
+private struct TransactionUpdatePayload: Encodable {
+    let category_name: String?
+    let notes: String?
+    let flow_month: String?
+
+    enum CodingKeys: String, CodingKey {
+        case category_name
+        case notes
+        case flow_month
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let category_name {
+            try container.encode(category_name, forKey: .category_name)
+        }
+        if let notes {
+            try container.encode(notes, forKey: .notes)
+        }
+        if let flow_month {
+            try container.encode(flow_month, forKey: .flow_month)
+        }
     }
 }
