@@ -100,7 +100,7 @@ struct EditTransactionView: View {
                 force: true
             )
         }
-        .onChange(of: vm.errorMessage) { newValue, _ in
+        .onChange(of: vm.errorMessage) { _, newValue in
             if let newValue {
                 AppLogger.log("⚠️ VM error message: \(newValue)", force: true)
             }

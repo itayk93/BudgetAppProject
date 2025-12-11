@@ -1383,11 +1383,7 @@ struct CashflowCardsView: View {
                 .onAppear {
                     AppLogger.log("🔍 TransactionSearchSheet appeared (filter active=\(filter.isActive))")
                 }
-                .onChange(of: vm.errorMessage) { _, newValue in
-                    if let newValue {
-                        AppLogger.log("⚠️ VM error message: \(newValue)", force: true)
-                    }
-                }
+
                 .onChange(of: searchText) { _, newValue in
                     AppLogger.log("🔍 TransactionSearchSheet search text updated: '\(newValue)'")
                     debounceTask?.cancel()
