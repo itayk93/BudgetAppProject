@@ -1692,7 +1692,7 @@ private extension CashflowCardsView {
     private func transactionRow(_ t: Transaction, currency: String, highlight: Color) -> some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                Text(CashflowCardsView.shortDate(t.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
+                Text(shortDate(t.parsedDate)).font(.footnote).foregroundColor(.secondary).frame(minWidth: 60, alignment: .leading)
                 HStack(spacing: 4) {
                     Text(formatNumber(abs(t.normalizedAmount))).foregroundColor(highlight).monospacedDigit()
                     Text("₪").font(.caption).foregroundColor(highlight)
@@ -1715,12 +1715,19 @@ private extension CashflowCardsView {
         .padding(.vertical, 6)
     }
 
-    static func shortDate(_ d: Date?) -> String {
+    private func shortDate(_ d: Date?) -> String {
         guard let d else { return "" }
         let f = DateFormatter()
         f.locale = Locale(identifier: "he_IL")
         f.dateFormat = "d.M.yy"
         return f.string(from: d)
+    }
+    private func formatNumber(_ v: Double) -> String {
+        let f = NumberFormatter()
+        f.numberStyle = .decimal
+        f.maximumFractionDigits = 1
+        f.groupingSeparator = ","
+        return f.string(from: NSNumber(value: v)) ?? String(format: "%.1f", v)
     }
 }
 
