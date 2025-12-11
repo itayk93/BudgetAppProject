@@ -154,8 +154,10 @@ struct EditTransactionView: View {
 
     private func calculateScrollViewHeight(maxTotal: CGFloat) -> CGFloat {
         let availableForScroll = max(0, maxTotal - heroHeight)
-        // If content is smaller than available space, use content height (allows shrinking)
-        // If content is larger, use available space (allows scrolling within max height)
+        // If content height is 0 (not measured yet), use available space to allow layout pass.
+        if scrollContentHeight <= 0 {
+            return availableForScroll
+        }
         return min(scrollContentHeight, availableForScroll)
     }
 
