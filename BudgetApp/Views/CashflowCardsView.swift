@@ -1311,7 +1311,6 @@ struct CashflowCardsView: View {
 
         private let minSearchLength = 2
         private let debounceDelay: UInt64 = 500_000_000 // 0.5s
-
         var body: some View {
             NavigationStack {
                 List {
