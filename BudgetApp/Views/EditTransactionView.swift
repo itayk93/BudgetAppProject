@@ -68,7 +68,7 @@ struct EditTransactionView: View {
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        dismiss()
+                        onCancel()
                     }
 
                 bottomSheet
@@ -176,7 +176,7 @@ struct EditTransactionView: View {
                     withAnimation {
                         sheetDragOffset = 0
                     }
-                    dismiss()
+                    onCancel()
                 } else {
                     withAnimation {
                         sheetDragOffset = 0
