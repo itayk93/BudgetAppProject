@@ -4,6 +4,13 @@ import UIKit
 struct EditTransactionView: View {
     @Environment(\.dismiss) private var dismiss
 
+    struct ContentHeightKey: PreferenceKey {
+        static var defaultValue: CGFloat = 0
+        static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+            value += nextValue()
+        }
+    }
+
     let transaction: Transaction
     let onSave: (Transaction) -> Void
     let onDelete: (Transaction) -> Void
@@ -26,8 +33,7 @@ struct EditTransactionView: View {
     @State private var didDelete = false
     @State private var errorMessage: String?
     @State private var sheetDragOffset: CGFloat = 0
-    @State private var heroHeight: CGFloat = 0
-    @State private var scrollContentHeight: CGFloat = 0
+    @State private var contentHeight: CGFloat = 600
 
     @EnvironmentObject private var vm: CashFlowDashboardViewModel
 
@@ -65,9 +71,9 @@ struct EditTransactionView: View {
                         dismissKeyboard()
                     }
 
-                bottomSheet(availableHeight: proxy.size.height * 0.8)
+                bottomSheet
                     .frame(maxWidth: .infinity, alignment: .bottom)
-
+                    .frame(maxHeight: min(proxy.size.height * 0.9, contentHeight), alignment: .bottom)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissKeyboard()
@@ -117,32 +123,30 @@ struct EditTransactionView: View {
 
     // MARK: - Layout
 
-    private func bottomSheet(availableHeight: CGFloat) -> some View {
+    private var bottomSheet: some View {
         VStack(spacing: 0) {
             heroSection
                 .background(
                     GeometryReader { geo in
-                        Color.clear.preference(key: HeroSizePreferenceKey.self, value: geo.size)
+                        Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
                     }
                 )
 
             ScrollView(showsIndicators: false) {
                 actionsSection
-                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.bottom, 60)
                     .background(
                         GeometryReader { geo in
-                            Color.clear.preference(key: ScrollContentSizePreferenceKey.self, value: geo.size)
+                            Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
                         }
                     )
             }
             .scrollDismissesKeyboard(.interactively)
-            .frame(height: calculateScrollViewHeight(maxTotal: availableHeight))
         }
-        .onPreferenceChange(HeroSizePreferenceKey.self) { size in
-            heroHeight = size.height
-        }
-        .onPreferenceChange(ScrollContentSizePreferenceKey.self) { size in
-            scrollContentHeight = size.height
+        .onPreferenceChange(ContentHeightKey.self) { newHeight in
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+                contentHeight = newHeight
+            }
         }
         .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
@@ -151,15 +155,6 @@ struct EditTransactionView: View {
         .offset(y: sheetDragOffset)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: sheetDragOffset)
         .simultaneousGesture(sheetDismissGesture)
-    }
-
-    private func calculateScrollViewHeight(maxTotal: CGFloat) -> CGFloat {
-        let availableForScroll = max(0, maxTotal - heroHeight)
-        // If content height is 0 (not measured yet), use available space to allow layout pass.
-        if scrollContentHeight <= 0 {
-            return availableForScroll
-        }
-        return min(scrollContentHeight, availableForScroll)
     }
 
     private var sheetDismissGesture: some Gesture {
@@ -841,20 +836,6 @@ private struct ActionCard: ViewModifier {
 private extension View {
     func actionCard(destructive: Bool = false) -> some View {
         modifier(ActionCard(isDestructive: destructive))
-    }
-}
-
-struct HeroSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
-    }
-}
-
-struct ScrollContentSizePreferenceKey: PreferenceKey {
-    static var defaultValue: CGSize = .zero
-    static func reduce(value: inout CGSize, nextValue: () -> CGSize) {
-        value = nextValue()
     }
 }
 
