@@ -68,7 +68,7 @@ struct EditTransactionView: View {
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        dismissKeyboard()
+                        dismiss()
                     }
 
                 bottomSheet
@@ -161,11 +161,13 @@ struct EditTransactionView: View {
         DragGesture()
             .onChanged { value in
                 let translation = value.translation.height
-                guard translation > 0 else {
+                // If we are dragging down (positive translation), use it.
+                // If we are dragging up (negative), we clamp to 0 so the sheet doesn't move up.
+                if translation > 0 {
+                    sheetDragOffset = translation
+                } else {
                     sheetDragOffset = 0
-                    return
                 }
-                sheetDragOffset = translation
             }
             .onEnded { value in
                 let translation = value.translation.height
