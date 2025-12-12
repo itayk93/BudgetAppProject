@@ -115,7 +115,6 @@ struct PendingTransactionsReviewView: View {
                 .padding(.top, 24)
                 .padding(.bottom, 60)
             }
-            .background(Color.white)
             .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
         .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 0)
@@ -361,27 +360,7 @@ struct PendingTransactionsReviewView: View {
             .buttonStyle(.plain)
             .actionCard()
             
-            // Move Category Action (Redundant if 'Edit' is top, but keeping per plan if desired, or maybe just remove?)
-            // The user wanted "all options", so we can keep a specific move category if distinct from "Edit".
-            // However, "Edit" usually opens the category sheet. Let's keep it consistent with EditTransactionView.
-            // On Edit view, category is a section. Here "Edit" is a button.
-            // Let's stick to the plan: Notes, Flow, Split, Move, Delete.
-            
-            Button {
-                pendingCategoryChange = transaction
-            } label: {
-                 HStack(spacing: 8) {
-                    Image(systemName: "folder")
-                        .font(.title3)
-                        .foregroundColor(.primary)
-                    Text("שינוי קטגוריה")
-                        .font(.body.weight(.semibold))
-                        .foregroundColor(.primary)
-                    Spacer()
-                }
-            }
-            .buttonStyle(.plain)
-            .actionCard()
+
 
             // Delete Action
             Button {
