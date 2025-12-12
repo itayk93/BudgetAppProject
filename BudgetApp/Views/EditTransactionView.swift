@@ -54,7 +54,7 @@ struct EditTransactionView: View {
         self._showCategorySelector = State(initialValue: false)
         self._categorySearchText = State(initialValue: "")
         self._selectedCategory = State(initialValue: nil)
-        self._noteExpanded = State(initialValue: !transaction.notes.isNilOrEmpty)
+        self._noteExpanded = State(initialValue: !(transaction.notes?.isEmpty ?? true))
         self._moveFlowMonthExpanded = State(initialValue: false)
         self._moveFlowMonthDate = State(initialValue: Date())
         self._showSplitTransaction = State(initialValue: false)
@@ -68,19 +68,18 @@ struct EditTransactionView: View {
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                    .onTapGesture {
                         animateDismissal()
                     }
 
                 bottomSheet
                     .frame(maxWidth: .infinity, alignment: .bottom)
-                    .frame(maxHeight: min(UIScreen.main.bounds.height * 0.9, contentHeight), alignment: .bottom)
+                    .frame(maxHeight: min(proxy.size.height * 0.9, contentHeight), alignment: .bottom)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissKeyboard()
                     }
             }
-            }
+        }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSplitTransaction) {
             let availableCategories = prepareAvailableCategories()
@@ -799,7 +798,7 @@ struct EditTransactionView: View {
 
     private func animateDismissal() {
         withAnimation(.spring(response: 0.35, dampingFraction: 1.0)) {
-            sheetDragOffset = UIScreen.main.bounds.height
+            sheetDragOffset = contentHeight
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             onCancel()
