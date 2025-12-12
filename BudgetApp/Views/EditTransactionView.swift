@@ -73,14 +73,13 @@ struct EditTransactionView: View {
 
                 bottomSheet
                     .frame(maxWidth: .infinity, alignment: .bottom)
-                    .frame(maxHeight: min(proxy.size.height * 0.9, contentHeight), alignment: .bottom)
+                    .frame(maxHeight: min(UIScreen.main.bounds.height * 0.9, contentHeight), alignment: .bottom)
                     .contentShape(Rectangle())
                     .onTapGesture {
                         dismissKeyboard()
                     }
             }
-            .edgesIgnoringSafeArea(.bottom)
-        }
+            }
         .toolbar(.hidden, for: .navigationBar)
         .sheet(isPresented: $showSplitTransaction) {
             let availableCategories = prepareAvailableCategories()
@@ -155,6 +154,7 @@ struct EditTransactionView: View {
         .offset(y: sheetDragOffset)
         .animation(.spring(response: 0.35, dampingFraction: 0.85), value: sheetDragOffset)
         .simultaneousGesture(sheetDismissGesture)
+        .ignoresSafeArea(.container, edges: .bottom)
     }
 
     private var sheetDismissGesture: some Gesture {
