@@ -138,10 +138,16 @@ struct EditTransactionView: View {
             .frame(height: calculateScrollViewHeight(maxTotal: availableHeight))
         }
         .onPreferenceChange(HeroSizePreferenceKey.self) { size in
-            heroHeight = size.height
+            DispatchQueue.main.async {
+                heroHeight = size.height
+            }
         }
         .onPreferenceChange(ScrollContentSizePreferenceKey.self) { size in
-            scrollContentHeight = size.height
+            DispatchQueue.main.async {
+                scrollContentHeight = size.height
+                // log for debugging
+                // print("ScrollContentHeight updated: \(size.height)")
+            }
         }
         .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
