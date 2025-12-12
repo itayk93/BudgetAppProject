@@ -1400,7 +1400,12 @@ struct CashflowCardsView: View {
                         transaction: transaction,
                         onSave: { updatedTx in
                             Task {
-                                await vm.updateTransaction(updatedTx)
+                                try? await vm.updateTransaction(
+                                    updatedTx,
+                                    categoryName: updatedTx.effectiveCategoryName,
+                                    notes: updatedTx.notes,
+                                    flowMonth: updatedTx.flow_month
+                                )
                                 editingTransaction = nil
                             }
                         },
