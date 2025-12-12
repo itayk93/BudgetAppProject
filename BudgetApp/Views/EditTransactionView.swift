@@ -128,6 +128,7 @@ struct EditTransactionView: View {
 
             ScrollView(showsIndicators: false) {
                 actionsSection
+                    .fixedSize(horizontal: false, vertical: true)
                     .background(
                         GeometryReader { geo in
                             Color.clear.preference(key: ScrollContentSizePreferenceKey.self, value: geo.size)
@@ -138,16 +139,10 @@ struct EditTransactionView: View {
             .frame(height: calculateScrollViewHeight(maxTotal: availableHeight))
         }
         .onPreferenceChange(HeroSizePreferenceKey.self) { size in
-            DispatchQueue.main.async {
-                heroHeight = size.height
-            }
+            heroHeight = size.height
         }
         .onPreferenceChange(ScrollContentSizePreferenceKey.self) { size in
-            DispatchQueue.main.async {
-                scrollContentHeight = size.height
-                // log for debugging
-                // print("ScrollContentHeight updated: \(size.height)")
-            }
+            scrollContentHeight = size.height
         }
         .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
