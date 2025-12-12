@@ -228,6 +228,8 @@ struct EditTransactionView: View {
         }
         .frame(maxWidth: .infinity, alignment: .trailing)
         .background(heroYellowColor)
+        .contentShape(Rectangle())
+        .highPriorityGesture(sheetDismissGesture)
     }
 
     private var actionsSection: some View {
