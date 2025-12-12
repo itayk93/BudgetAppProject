@@ -135,10 +135,28 @@ struct CashflowCardsView: View {
             .sheet(isPresented: $showingPlanAheadSheet) {
                 PlanAheadSheet(suggestions: planAheadSuggestions)
             }
-            .sheet(isPresented: $showingPendingTransactionsSheet) {
-                PendingTransactionsReviewView()
-            }
             .overlay(alignment: .bottom) {
+                if showingPendingTransactionsSheet {
+                     ZStack {
+                        Color.black.opacity(0.3)
+                            .ignoresSafeArea()
+                            .onTapGesture {
+                                withAnimation {
+                                    showingPendingTransactionsSheet = false
+                                }
+                            }
+                            
+                        PendingTransactionsReviewView(onDismiss: {
+                             withAnimation {
+                                 showingPendingTransactionsSheet = false
+                             }
+                        })
+                        .transition(.move(edge: .bottom))
+                        .zIndex(102) 
+                    }
+                    .zIndex(102)
+                }
+
                 if let transaction = selectedTransactionForEdit {
                     ZStack {
                         Color.black.opacity(0.3)
