@@ -421,34 +421,37 @@ struct EditTransactionView: View {
                         .padding(10)
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .multilineTextAlignment(.leading)
+                        .multilineTextAlignment(.trailing)
 
-                    ForEach(filteredCategories, id: \.self) { category in
-                        Button {
-                            selectCategory(category)
-                        } label: {
-                            HStack {
-                                Image(systemName: "chevron.left")
-                                    .font(.footnote)
-                                Text(category)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                Spacer()
+                    if !categorySearchText.isEmpty {
+                        ForEach(filteredCategories, id: \.self) { category in
+                            Button {
+                                selectCategory(category)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "chevron.left")
+                                        .font(.footnote)
+                                    Text(category)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Spacer()
+                                }
                             }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color.white)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(
+                                        selectedCategory == category ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.25),
+                                        lineWidth: 1
+                                    )
+                            )
+                            .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
                         }
-                        .buttonStyle(.plain)
-                        .padding()
-                        .background(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .fill(selectedCategory == category ? Color(UIColor.systemGray5) : Color.white)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                .stroke(
-                                    selectedCategory == category ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.25),
-                                    lineWidth: 1
-                                )
-                        )
-                        .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
                     }
 
                     Button {
