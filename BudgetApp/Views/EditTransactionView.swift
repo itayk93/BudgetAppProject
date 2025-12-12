@@ -68,7 +68,8 @@ struct EditTransactionView: View {
                     .ignoresSafeArea()
                     .contentShape(Rectangle())
                     .onTapGesture {
-                        onCancel()
+                    .onTapGesture {
+                        animateDismissal()
                     }
 
                 bottomSheet
@@ -176,7 +177,7 @@ struct EditTransactionView: View {
                     withAnimation {
                         sheetDragOffset = 0
                     }
-                    onCancel()
+                    animateDismissal()
                 } else {
                     withAnimation {
                         sheetDragOffset = 0
@@ -794,6 +795,15 @@ struct EditTransactionView: View {
         didDelete = true
         hasPendingChanges = false
         onDelete(transaction)
+    }
+
+    private func animateDismissal() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 1.0)) {
+            sheetDragOffset = UIScreen.main.bounds.height
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            onCancel()
+        }
     }
 
     private func toastView(message: String) -> some View {
