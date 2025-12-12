@@ -3,7 +3,7 @@ import UIKit
 
 struct PendingTransactionsReviewView: View {
     @StateObject private var viewModel = PendingTransactionsReviewViewModel()
-    @State private var dragOffset: CGSize = .zero
+    @State private var sheetDragOffset: CGFloat = 0
     @State private var pendingCategoryChange: Transaction?
     @State private var heroNoteExpanded = false
     @State private var heroNoteText = ""
@@ -22,299 +22,193 @@ struct PendingTransactionsReviewView: View {
     }
 
     var body: some View {
-        contentView
-            .dismissKeyboardOnTap()
-            .navigationTitle("אישור עסקאות")
-            .navigationBarTitleDisplayMode(NavigationBarItem.TitleDisplayMode.inline)
-            .task {
-                AppLogger.log("📱 [DEBUG] PendingTransactionsReviewView appeared, refreshing")
-                await viewModel.refresh()
-            }
-            .refreshable {
-                AppLogger.log("📱 [DEBUG] Pull to refresh triggered")
-                await viewModel.refresh()
-            }
-            .sheet(item: $pendingCategoryChange) { transaction in
-                CategorySelectionSheet(
-                    transaction: transaction,
-                    categories: viewModel.categories,
-                    onSelect: { categoryName, note in
-                        Task {
-                            await viewModel.reassign(transaction, to: categoryName, note: note)
-                        }
-                    },
-                    onSelectForFuture: { categoryName, note in
-                        Task {
-                            await viewModel.reassignForFuture(transaction, to: categoryName, note: note)
-                        }
-                    },
-                    onDelete: {
-                        Task {
-                            await viewModel.delete(transaction)
-                        }
-                    },
-                    onHideBusiness: {
-                        Task {
-                            await viewModel.hideBusiness(transaction)
-                        }
+        GeometryReader { proxy in
+            ZStack(alignment: .bottom) {
+                // Dimmed Background
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        animateDismissal()
                     }
-                )
-            }
-            .sheet(item: $splitTransactionTarget) { transaction in
-                let availableCategories = prepareAvailableCategories(for: transaction)
-                SplitTransactionSheet(
-                    transaction: transaction,
-                    availableCategories: availableCategories,
-                    onSubmit: { originalTransactionId, splits in
-                        Task { @MainActor in
-                            do {
-                                try await viewModel.splitTransaction(
-                                    transaction,
-                                    originalTransactionId: originalTransactionId,
-                                    splits: splits
-                                )
-                            } catch {
-                                viewModel.errorMessage = error.localizedDescription
-                            }
-                        }
-                    },
-                    onSuccess: {
-                        splitTransactionTarget = nil
-                    }
-                )
-            }
-            .overlay(alignment: Alignment.top) {
-                if let toastMessage {
-                    toastView(message: toastMessage)
-                        .transition(.move(edge: .top).combined(with: .opacity))
-                        .padding(.top, 12)
-                        .padding(.horizontal, 24)
-                }
-            }
-            .onChange(of: viewModel.actionMessage) { newValue, _ in
-                guard let newValue else { return }
-                toastMessage = newValue
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.6) {
-                    if toastMessage == newValue {
-                        withAnimation {
-                            toastMessage = nil
-                        }
-                        viewModel.actionMessage = nil
-                    }
-                }
-            }
-            .onChange(of: viewModel.transactions.first?.id) { _, _ in
-                dragOffset = .zero
-                heroNoteExpanded = false
-                heroNoteText = currentTransaction?.notes ?? ""
-                moveFlowMonthExpanded = false
-                moveFlowMonthError = nil
-            }
-            // RTL גלובלי – ה־HStackים של הכפתורים נשארים כמו בעבר,
-            // ואת הכרטיס הצהוב אנחנו מיישרים ידנית לצד ימין.
-            .environment(\.layoutDirection, LayoutDirection.rightToLeft)
-    }
 
-    private var contentView: some View {
-        ZStack(alignment: Alignment.top) {
-            Color(UIColor.systemGray5).ignoresSafeArea()
-                .onTapGesture {
-                    if heroNoteExpanded {
-                        withAnimation { heroNoteExpanded = false }
-                    }
+                if let transaction = currentTransaction {
+                    mainSheet(for: transaction, height: proxy.size.height)
+                } else if viewModel.loading {
+                     // Keep loading state simple or adapt
+                     ProgressView()
+                } else {
+                     // Empty state
+                     heroEmptyState
                 }
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 20) {
-                    heroSection
-                    if let transaction = currentTransaction {
-                        heroFooter(for: transaction)
-                    }
-                }
-                .frame(maxWidth: .infinity, alignment: .center)
-                .padding(.top, 12)
-                .padding(.horizontal, 20)
-                .padding(.bottom, 32)
             }
+        }
+        .environment(\.layoutDirection, .rightToLeft)
+        .navigationTitle("") // Hide default title in sheet mode if needed, or keep
+        .navigationBarHidden(true)
+        .task {
+            AppLogger.log("📱 [DEBUG] PendingTransactionsReviewView appeared")
+            await viewModel.refresh()
+        }
+        .sheet(item: $pendingCategoryChange) { transaction in
+             CategorySelectionSheet(
+                transaction: transaction,
+                categories: viewModel.categories,
+                onSelect: { categoryName, note in
+                    Task { await viewModel.reassign(transaction, to: categoryName, note: note) }
+                },
+                onSelectForFuture: { categoryName, note in
+                    Task { await viewModel.reassignForFuture(transaction, to: categoryName, note: note) }
+                },
+                onDelete: {
+                    Task { await viewModel.delete(transaction) }
+                },
+                onHideBusiness: {
+                    Task { await viewModel.hideBusiness(transaction) }
+                }
+            )
+        }
+        .sheet(item: $splitTransactionTarget) { transaction in
+            let availableCategories = prepareAvailableCategories(for: transaction)
+            SplitTransactionSheet(
+                transaction: transaction,
+                availableCategories: availableCategories,
+                onSubmit: { originalTransactionId, splits in
+                    Task { @MainActor in
+                        do {
+                            try await viewModel.splitTransaction(
+                                transaction,
+                                originalTransactionId: originalTransactionId,
+                                splits: splits
+                            )
+                        } catch {
+                            viewModel.errorMessage = error.localizedDescription
+                        }
+                    }
+                },
+                onSuccess: {
+                    splitTransactionTarget = nil
+                }
+            )
+        }
+        .overlay(alignment: .top) {
+             if let toastMessage {
+                 toastView(message: toastMessage)
+                     .transition(.move(edge: .top).combined(with: .opacity))
+                     .padding(.top, 12)
+                     .padding(.horizontal, 24)
+             }
         }
     }
 
-    @ViewBuilder
-    private var heroSection: some View {
-        if let transaction = currentTransaction {
-            heroCardView(transaction)
-        } else if viewModel.loading {
-            heroLoadingPlaceholder
-        } else {
-            heroEmptyState
+    // MARK: - Layout
+
+    private func mainSheet(for transaction: Transaction, height: CGFloat) -> some View {
+        VStack(spacing: 0) {
+            heroSection(for: transaction)
+            
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 24) {
+                    primaryActions(for: transaction)
+                    secondaryActions(for: transaction)
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 24)
+                .padding(.bottom, 60)
+            }
+            .background(Color.white)
+        }
+        .background(Color.white.opacity(0.98))
+        .clipShape(TopRoundedSheetShape(radius: 32))
+        .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 0)
+        .frame(maxWidth: .infinity)
+        .frame(maxHeight: height * 0.9, alignment: .bottom) // Start at 90% height like edit
+        .offset(y: sheetDragOffset)
+        .animation(.spring(response: 0.35, dampingFraction: 0.85), value: sheetDragOffset)
+        .gesture(sheetDismissGesture)
+        .ignoresSafeArea(.container, edges: .bottom)
+    }
+
+
+    private func heroSection(for transaction: Transaction) -> some View {
+        VStack(spacing: 12) {
+            // Drag Handle
+            RoundedRectangle(cornerRadius: 3, style: .continuous)
+                .fill(Color.black.opacity(0.2))
+                .frame(width: 48, height: 5)
+                .padding(.top, 8)
+
+            VStack(alignment: .leading, spacing: 8) {
+                // Category
+                Text(categoryLabel(for: transaction))
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundColor(.white.opacity(0.92))
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
+                // Amount
+                Text("\(currencySymbol(for: transaction.currency)) \(heroAmountText(transaction.absoluteAmount))")
+                    .font(.system(size: 46, weight: .bold)) // Updated size
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .multilineTextAlignment(.leading)
+
+                // Details
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(transaction.business_name ?? transaction.payment_method ?? "עסקה ממתינה")
+                    Text(formattedPaymentDate(for: transaction))
+                    Text("חודש תזרים: \(displayedFlowMonth(for: transaction))")
+                }
+                .font(.footnote)
+                .foregroundColor(.white.opacity(0.9))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .multilineTextAlignment(.leading)
+            }
+            .padding(.horizontal, 20)
+            .padding(.top, 12)
+            .padding(.bottom, 18)
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .background(heroYellowColor)
+        .contentShape(Rectangle())
+        .highPriorityGesture(sheetDismissGesture)
+    }
+
+    private var sheetDismissGesture: some Gesture {
+        DragGesture()
+            .onChanged { value in
+                let translation = value.translation.height
+                if translation > 0 {
+                    sheetDragOffset = translation
+                } else {
+                    sheetDragOffset = 0
+                }
+            }
+            .onEnded { value in
+                let translation = value.translation.height
+                let shouldDismiss = translation > 140 || value.predictedEndLocation.y - value.location.y > 160
+                if shouldDismiss {
+                    animateDismissal()
+                } else {
+                    withAnimation {
+                        sheetDragOffset = 0
+                    }
+                }
+            }
+    }
+
+    private func animateDismissal() {
+        withAnimation(.spring(response: 0.35, dampingFraction: 1.0)) {
+            sheetDragOffset = UIScreen.main.bounds.height
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            dismiss()
         }
     }
 
     // MARK: - Yellow hero card
 
-    private func heroCardView(_ transaction: Transaction) -> some View {
-        VStack(spacing: 0) {
-            // חלק הכותרת הצהוב
-            VStack(alignment: .leading, spacing: 8) {
-                // 1. כפתור סגירה – חזותית בצד ימין-עליון ב־RTL
-                HStack {
-                    Button {
-                        dismiss()
-                    } label: {
-                        Image(systemName: "xmark")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(width: 32, height: 32)
-                            .background(Color.black.opacity(0.25))
-                            .clipShape(Circle())
-                    }
-                    Spacer()
-                }
-                .frame(maxWidth: .infinity, alignment: .trailing)
 
-                // 2. כותרת קטגוריה
-                Text(categoryLabel(for: transaction))
-                    .font(.subheadline)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-
-                // 3. סכום ראשי
-                Text("\(currencySymbol(for: transaction.currency))\(heroAmountText(transaction.absoluteAmount))")
-                    .font(.system(size: 42, weight: .bold))
-                    .foregroundColor(.white)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-
-                // 4. שם העסק / תיאור
-                Text(transaction.business_name ?? transaction.payment_method ?? "עסקה ממתינה")
-                    .font(.headline)
-                    .foregroundColor(.white.opacity(0.95))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-
-                // 5. תאריך עסקה
-                Text(formattedPaymentDate(for: transaction))
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.75))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-
-                // 6. חודש תזרים
-                Text("חודש תזרים: \(displayedFlowMonth(for: transaction))")
-                    .font(.caption2)
-                    .foregroundColor(.white.opacity(0.75))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .multilineTextAlignment(.leading)
-            }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 24)
-            .padding(.top, 20)
-            .padding(.bottom, 16)
-            .background(heroYellowColor)
-
-            // אזור הלבן עם האקשנים
-            VStack(spacing: 12) {
-                heroNoteEditor(for: transaction)
-                heroMoveFlowMonthEditor(for: transaction)
-                ForEach(heroActions(for: transaction)) { action in
-                    heroActionButton(action)
-                }
-                if viewModel.transactions.count > 1 {
-                    Text("נותרו עוד \(viewModel.transactions.count - 1) טרנזקציות ממתינות")
-                        .font(.footnote)
-                        .foregroundColor(.secondary)
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                }
-            }
-            .padding(.horizontal, 12)
-            .padding(.top, 18)
-            .padding(.bottom, 20)
-        }
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 32, style: .continuous))
-        .shadow(color: Color.black.opacity(0.08), radius: 16, x: 0, y: 8)
-        .padding(.horizontal, 20)
-        .offset(x: dragOffset.width, y: 0)
-        .rotationEffect(.degrees(Double(dragOffset.width / 10)))
-        .gesture(heroDragGesture(for: transaction))
-        .onTapGesture {
-            if heroNoteExpanded {
-                withAnimation { heroNoteExpanded = false }
-            } else {
-                guard viewModel.processingTransactionID == nil && pendingCategoryChange == nil else { return }
-                pendingCategoryChange = transaction
-            }
-        }
-        .allowsHitTesting(viewModel.processingTransactionID == nil && pendingCategoryChange == nil)
-        .onAppear {
-            heroNoteText = transaction.notes ?? ""
-        }
-    }
-
-    private func heroDragGesture(for transaction: Transaction) -> some Gesture {
-        DragGesture(minimumDistance: 10)
-            .onChanged { value in
-                let clamped = min(0, value.translation.width) // Only allow swiping left
-                withAnimation(.spring(response: 0.25, dampingFraction: 0.9)) {
-                    dragOffset = CGSize(width: clamped, height: 0)
-                }
-            }
-            .onEnded { value in
-                handleDragEnd(translationX: value.translation.width, transaction: transaction)
-            }
-    }
-
-    private func heroActionButton(_ action: HeroAction) -> some View {
-        actionCardButton(
-            title: action.title,
-            systemIcon: action.icon,
-            action: action.action
-        )
-    }
-
-    private func actionCardButton(
-        title: String,
-        systemIcon: String,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            HStack(spacing: 12) {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                    .foregroundColor(.primary)
-                Spacer()
-                Image(systemName: systemIcon)
-                    .font(.title3)
-                    .foregroundColor(.secondary)
-            }
-            .padding()
-            .frame(maxWidth: .infinity)
-            .background(
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(Color(UIColor.systemGray6))
-                    .shadow(color: Color.black.opacity(0.06), radius: 6, x: 0, y: 3)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    private func heroActions(for transaction: Transaction) -> [HeroAction] {
-        [
-            HeroAction(id: "move", icon: "arrowshape.turn.up.right", title: "להזיז את ההוצאה") {
-                AppLogger.log("🔄 [HERO ACTION] Move tapped for tx=\(transaction.id)")
-                pendingCategoryChange = transaction
-            },
-            HeroAction(id: "split", icon: "scissors", title: "לפצל את ההוצאה") {
-                splitTransactionTarget = transaction
-            },
-            HeroAction(id: "delete", icon: "trash", title: "מחיקת עסקה") {
-                Task {
-                    await viewModel.delete(transaction)
-                }
-            }
-        ]
-    }
 
     private func heroNoteEditor(for transaction: Transaction) -> some View {
         let trimmed = heroNoteText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -509,101 +403,6 @@ struct PendingTransactionsReviewView: View {
         FlowMonthInputValidator.monthFormatter.string(from: date)
     }
 
-    private func heroFooter(for transaction: Transaction) -> some View {
-        let remaining = max(viewModel.transactions.count - 1, 0)
-        let isProcessing = viewModel.processingTransactionID == transaction.id
-        return VStack(spacing: 16) {
-            Text("נותרו עוד \(remaining) עסקאות ממתינות")
-                .font(.footnote)
-                .foregroundColor(.secondary)
-                .frame(maxWidth: .infinity)
-
-            HStack(spacing: 12) {
-                footerActionButton(
-                    title: "לערוך",
-                    systemIcon: "square.and.pencil",
-                    filled: false,
-                    action: {
-                        pendingCategoryChange = transaction
-                    }
-                )
-                footerActionButton(
-                    title: "להמשיך",
-                    systemIcon: "arrowshape.turn.up.right",
-                    filled: true,
-                    action: {
-                        guard !isProcessing else { return }
-                        Task {
-                            await viewModel.approve(transaction)
-                        }
-                    },
-                    disabled: isProcessing
-                )
-            }
-
-            Text("שמרנו את ההוצאה הזו בקטגוריית \(categoryLabel(for: transaction)).")
-                .font(.footnote)
-                .foregroundColor(.secondary)
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 26, style: .continuous)
-                .fill(Color.white)
-                .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
-        )
-    }
-
-    private func footerActionButton(
-        title: String,
-        systemIcon: String,
-        filled: Bool,
-        action: @escaping () -> Void,
-        disabled: Bool = false
-    ) -> some View {
-        Button(action: action) {
-            HStack {
-                Text(title)
-                    .font(.body.weight(.semibold))
-                Spacer()
-                Image(systemName: systemIcon)
-            }
-            .padding()
-            .frame(maxWidth: .infinity)
-            .background(
-                Group {
-                    if filled {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .fill(Color.accentColor)
-                    } else {
-                        RoundedRectangle(cornerRadius: 16, style: .continuous)
-                            .strokeBorder(Color.accentColor, lineWidth: 1.5)
-                    }
-                }
-            )
-            .foregroundColor(filled ? .white : .accentColor)
-        }
-        .buttonStyle(.plain)
-        .disabled(disabled)
-        .opacity(disabled ? 0.6 : 1)
-    }
-
-    private var heroLoadingPlaceholder: some View {
-        VStack(spacing: 12) {
-            ProgressView()
-                .progressViewStyle(CircularProgressViewStyle(tint: .accentColor))
-            Text("טוען עסקאות ממתינות...")
-                .font(.footnote)
-                .foregroundColor(.secondary)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(24)
-        .background(Color.white)
-        .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-        .shadow(color: Color.black.opacity(0.08), radius: 12, x: 0, y: 6)
-        .padding(.horizontal, 20)
-    }
-
     private var heroEmptyState: some View {
         VStack(spacing: 12) {
             Image(systemName: "clock.badge.exclamationmark")
@@ -637,15 +436,271 @@ struct PendingTransactionsReviewView: View {
         .padding(.horizontal, 20)
     }
 
-    private func handleDragEnd(translationX: CGFloat, transaction: Transaction) {
-        if translationX < -swipeThreshold {
-            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                dragOffset = CGSize(width: max(translationX, -220), height: 0)
+    private func primaryActions(for transaction: Transaction) -> some View {
+        let isProcessing = viewModel.processingTransactionID == transaction.id
+        return HStack(spacing: 12) {
+             // Edit Button (Secondary style - transparent with border)
+             Button {
+                 pendingCategoryChange = transaction
+             } label: {
+                 HStack {
+                     Text("לערוך")
+                         .font(.body.weight(.semibold))
+                     Spacer()
+                     Image(systemName: "square.and.pencil")
+                 }
+                 .padding()
+                 .frame(maxWidth: .infinity)
+                 .background(
+                     RoundedRectangle(cornerRadius: 16, style: .continuous)
+                         .strokeBorder(Color.accentColor, lineWidth: 1.5)
+                 )
+                 .foregroundColor(.accentColor)
+             }
+             .buttonStyle(.plain)
+
+             // Approve Button (Primary style - filled)
+             Button {
+                 guard !isProcessing else { return }
+                 Task { await viewModel.approve(transaction) }
+             } label: {
+                 HStack {
+                     Text("להמשיך")
+                         .font(.body.weight(.semibold))
+                     Spacer()
+                     Image(systemName: "arrowshape.turn.up.right")
+                 }
+                 .padding()
+                 .frame(maxWidth: .infinity)
+                 .background(
+                     RoundedRectangle(cornerRadius: 16, style: .continuous)
+                         .fill(Color.accentColor)
+                 )
+                 .foregroundColor(.white)
+             }
+             .buttonStyle(.plain)
+             .disabled(isProcessing)
+             .opacity(isProcessing ? 0.6 : 1)
+        }
+    }
+
+    private func secondaryActions(for transaction: Transaction) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            heroNoteEditor(for: transaction)
+            heroMoveFlowMonthEditor(for: transaction)
+            
+            // Split Action
+            Button {
+                splitTransactionTarget = transaction
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "scissors")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Text("לפצל את ההוצאה")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
             }
-            Task { await viewModel.approve(transaction) }
-        } else {
-            withAnimation(.spring()) {
-                dragOffset = .zero
+            .buttonStyle(.plain)
+            .actionCard()
+            
+            // Move Category Action (Redundant if 'Edit' is top, but keeping per plan if desired, or maybe just remove?)
+            // The user wanted "all options", so we can keep a specific move category if distinct from "Edit".
+            // However, "Edit" usually opens the category sheet. Let's keep it consistent with EditTransactionView.
+            // On Edit view, category is a section. Here "Edit" is a button.
+            // Let's stick to the plan: Notes, Flow, Split, Move, Delete.
+            
+            Button {
+                pendingCategoryChange = transaction
+            } label: {
+                 HStack(spacing: 8) {
+                    Image(systemName: "folder")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Text("שינוי קטגוריה")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .actionCard()
+
+            // Delete Action
+            Button {
+                Task { await viewModel.delete(transaction) }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "trash")
+                        .font(.title3)
+                        .foregroundColor(.red.opacity(0.7))
+                    Text("מחיקת עסקה")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.red.opacity(0.85))
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .actionCard(destructive: true)
+            
+            if viewModel.transactions.count > 1 {
+                Text("נותרו עוד \(viewModel.transactions.count - 1) טרנזקציות ממתינות")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .padding(.top, 8)
+            }
+        }
+    }
+
+    private func heroNoteEditor(for transaction: Transaction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    heroNoteExpanded.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "square.and.pencil")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Text(heroNoteExpanded ? "סגור הערה" : (heroNoteText.isEmpty ? "הוסף הערה" : "ערוך הערה"))
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .actionCard()
+
+            if heroNoteExpanded {
+                VStack(alignment: .leading, spacing: 10) {
+                    TextEditor(text: $heroNoteText)
+                        .frame(minHeight: 120, alignment: .top)
+                        .padding(12)
+                        .background(Color(UIColor.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                        .multilineTextAlignment(.leading)
+
+                    Button {
+                        Task { @MainActor in
+                            let saved = await viewModel.saveNote(heroNoteText, for: transaction.id)
+                            if saved {
+                                withAnimation { heroNoteExpanded = false }
+                            }
+                        }
+                    } label: {
+                        HStack {
+                            if viewModel.processingTransactionID == transaction.id {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                            }
+                            Text(viewModel.processingTransactionID == transaction.id ? "שומר..." : "שמור הערה")
+                                .font(.body.weight(.semibold))
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .disabled(viewModel.processingTransactionID == transaction.id)
+                    .buttonStyle(.plain)
+                    .actionCard()
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+                        .overlay(
+                             RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                 .stroke(Color.gray.opacity(0.18), lineWidth: 1)
+                        )
+                )
+            }
+        }
+    }
+
+    private func heroMoveFlowMonthEditor(for transaction: Transaction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    if moveFlowMonthExpanded {
+                        moveFlowMonthExpanded = false
+                    } else {
+                        moveFlowMonthDate = flowMonthDate(for: transaction)
+                        moveFlowMonthError = nil
+                        moveFlowMonthExpanded = true
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "calendar.badge.plus")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Text(moveFlowMonthExpanded ? "בטל העברת תזרים" : "העברת תזרים לחודש אחר")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .actionCard()
+
+            if moveFlowMonthExpanded {
+                VStack(alignment: .leading, spacing: 12) {
+                     Text("חודש תזרים")
+                        .font(.subheadline)
+                     
+                     DatePicker(
+                        "",
+                        selection: $moveFlowMonthDate,
+                        displayedComponents: [.date]
+                     )
+                     .datePickerStyle(.wheel)
+                     .labelsHidden()
+                     .environment(\.locale, Locale(identifier: "he_IL"))
+                     
+                     Text(formattedFlowMonth(from: moveFlowMonthDate))
+                        .font(.subheadline.monospacedDigit())
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                     
+                     if let error = moveFlowMonthError {
+                         Text(error)
+                            .font(.footnote)
+                            .foregroundColor(.red)
+                     }
+
+                     HStack(spacing: 12) {
+                         Button("בטל") {
+                             withAnimation { moveFlowMonthExpanded = false }
+                         }
+                         
+                         Spacer()
+                         
+                         Button {
+                             submitMoveFlowMonth(transaction)
+                         } label: {
+                             HStack {
+                                 if isMovingFlowMonth {
+                                     ProgressView().progressViewStyle(.circular)
+                                 }
+                                 Text(isMovingFlowMonth ? "מעביר..." : "שמור לחודש זה")
+                                     .font(.body.weight(.semibold))
+                             }
+                         }
+                         .disabled(isMovingFlowMonth)
+                     }
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+                        .overlay(
+                             RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                 .stroke(Color.gray.opacity(0.18), lineWidth: 1)
+                        )
+                )
             }
         }
     }
@@ -738,9 +793,43 @@ struct PendingTransactionsReviewView: View {
     }
 }
 
-private struct HeroAction: Identifiable {
-    let id: String
-    let icon: String
-    let title: String
-    let action: () -> Void
+struct TopRoundedSheetShape: Shape {
+    var radius: CGFloat = 32
+
+    func path(in rect: CGRect) -> Path {
+        let bezier = UIBezierPath(
+            roundedRect: rect,
+            byRoundingCorners: [.topLeft, .topRight],
+            cornerRadii: CGSize(width: radius, height: radius)
+        )
+        return Path(bezier.cgPath)
+    }
+}
+
+private struct ActionCard: ViewModifier {
+    let isDestructive: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .padding(.vertical, 14)
+            .padding(.horizontal, 16)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color.white)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(
+                                isDestructive ? Color.red.opacity(0.25) : Color.gray.opacity(0.18),
+                                lineWidth: 1
+                            )
+                    )
+                    .shadow(color: Color.black.opacity(0.03), radius: 6, x: 0, y: 3)
+            )
+    }
+}
+
+private extension View {
+    func actionCard(destructive: Bool = false) -> some View {
+        modifier(ActionCard(isDestructive: destructive))
+    }
 }
