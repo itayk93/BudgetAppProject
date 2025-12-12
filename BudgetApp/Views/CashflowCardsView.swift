@@ -1365,13 +1365,14 @@ struct CashflowCardsView: View {
         @State private var searchText: String = ""
         @State private var debouncedQuery: String = ""
         @State private var debounceTask: Task<Void, Never>?
+        @State private var editingTransaction: Transaction? = nil
 
         private let minSearchLength = 2
         private let debounceDelay: UInt64 = 500_000_000 // 0.5s
         var body: some View {
             NavigationStack {
                 List {
-                    Section(header: Text("תוצאות (\(results.count))").frame(maxWidth: .infinity, alignment: .trailing)) {
+                    Section(header: Text("תוצאות (\(results.count))").frame(maxWidth: .infinity, alignment: .leading)) {
                         if !isReadyToSearch {
                             Text("הקלד לפחות שתי אותיות כדי להתחיל לחפש")
                                 .font(.footnote)
@@ -1387,8 +1388,32 @@ struct CashflowCardsView: View {
 
                         ForEach(results, id: \.id) { tx in
                             TransactionSearchRow(transaction: tx, currencySymbol: currencySymbol)
+                                .contentShape(Rectangle())
+                                .onTapGesture {
+                                    editingTransaction = tx
+                                }
                         }
                     }
+                }
+                .sheet(item: $editingTransaction) { transaction in
+                    EditTransactionView(
+                        transaction: transaction,
+                        onSave: { updatedTx in
+                            Task {
+                                await vm.updateTransaction(updatedTx)
+                                editingTransaction = nil
+                            }
+                        },
+                        onDelete: { deletedTx in
+                            Task {
+                                await vm.deleteTransaction(deletedTx)
+                                editingTransaction = nil
+                            }
+                        },
+                        onCancel: {
+                            editingTransaction = nil
+                        }
+                    )
                 }
                 .listStyle(.insetGrouped)
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
@@ -1480,6 +1505,9 @@ struct CashflowCardsView: View {
                         .font(.headline)
                         .monospacedDigit()
                     Text(currencySymbol).font(.caption2).foregroundColor(.secondary)
+                    if let flowMonth = transaction.flow_month {
+                         Text(flowMonth).font(.caption2).foregroundColor(.blue)
+                    }
                 }
             }
         }

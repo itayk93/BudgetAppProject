@@ -109,11 +109,17 @@ struct PendingTransactionsReviewView: View {
             
             ScrollView(showsIndicators: false) {
                     secondaryActions(for: transaction)
-                    primaryActions(for: transaction)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 100)
                 }
-                .padding(.horizontal, 16)
-                .padding(.top, 24)
-                .padding(.bottom, 60)
+                .scrollDismissesKeyboard(.interactively)
+                
+                primaryActions(for: transaction)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 32)
+                    .padding(.top, 16)
+                    .background(Color.white)
             }
             .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
@@ -145,16 +151,25 @@ struct PendingTransactionsReviewView: View {
 
                 // Amount
                 Text("\(currencySymbol(for: transaction.currency)) \(heroAmountText(transaction.absoluteAmount))")
-                    .font(.system(size: 46, weight: .bold)) // Updated size
+                    .font(.system(size: 46, weight: .bold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
                 // Details
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(transaction.business_name ?? transaction.payment_method ?? "עסקה ממתינה")
-                    Text(formattedPaymentDate(for: transaction))
-                    Text("חודש תזרים: \(displayedFlowMonth(for: transaction))")
+                    if let businessLine = heroBusinessLine(for: transaction) {
+                        Text(businessLine)
+                    }
+                    if let cardLine = heroCardLine(for: transaction) {
+                        Text(cardLine)
+                    }
+                    if let flowLine = heroFlowMonthLine(for: transaction) {
+                        Text(flowLine)
+                    }
+                    if let dateLine = heroDateLine(for: transaction) {
+                        Text(dateLine)
+                    }
                 }
                 .font(.footnote)
                 .foregroundColor(.white.opacity(0.9))
@@ -370,7 +385,7 @@ struct PendingTransactionsReviewView: View {
                     Image(systemName: "trash")
                         .font(.title3)
                         .foregroundColor(.red.opacity(0.7))
-                    Text("מחיקת עסקה")
+                    Text("למחוק את העסקה")
                         .font(.body.weight(.semibold))
                         .foregroundColor(.red.opacity(0.85))
                     Spacer()
@@ -572,16 +587,7 @@ struct PendingTransactionsReviewView: View {
         return formatter.string(from: NSNumber(value: value)) ?? "0"
     }
 
-    private func formattedPaymentDate(for transaction: Transaction) -> String {
-        guard let date = transaction.parsedDate else {
-            return "תאריך לא זמין"
-        }
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "he_IL")
-        formatter.dateStyle = .short
-        formatter.timeStyle = .none
-        return formatter.string(from: date)
-    }
+
 
     private func currencySymbol(for code: String?) -> String {
         guard let code else { return "₪" }
@@ -624,6 +630,61 @@ struct PendingTransactionsReviewView: View {
             return fallback
         }
         return "הוצאות משתנות"
+    }
+
+    // MARK: - Hero Helpers (Parity with EditTransactionView)
+
+    private func heroBusinessLine(for transaction: Transaction) -> String? {
+        let business = transaction.business_name?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let method = transaction.payment_method?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let business, !business.isEmpty {
+            return business
+        }
+        if let method, !method.isEmpty {
+            return method
+        }
+        return nil
+    }
+
+    private func heroCardLine(for transaction: Transaction) -> String? {
+        let method = transaction.payment_method?.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let method, !method.isEmpty else { return nil }
+        return "כרטיס \(method)"
+    }
+
+    private func heroDateLine(for transaction: Transaction) -> String? {
+        guard let date = transaction.parsedDate else { return nil }
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "he_IL")
+        formatter.dateFormat = "d.M.yy"
+        return formatter.string(from: date)
+    }
+
+    private func heroFlowMonthLine(for transaction: Transaction) -> String? {
+        // Use live state if expanding/editing, otherwise transaction
+        let raw: String = {
+             if moveFlowMonthExpanded {
+                 return formattedFlowMonth(from: moveFlowMonthDate)
+             }
+             return resolvedFlowMonth(for: transaction)
+        }()
+
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        let inFormatter = DateFormatter()
+        inFormatter.dateFormat = "yyyy-MM"
+        inFormatter.locale = Locale(identifier: "en_US_POSIX")
+
+        if let date = inFormatter.date(from: trimmed) {
+            let outFormatter = DateFormatter()
+            outFormatter.locale = Locale(identifier: "he_IL")
+            outFormatter.dateFormat = "M.yy"
+            let formatted = outFormatter.string(from: date)
+            return "חודש תזרים \(formatted)"
+        } else {
+             return "חודש תזרים \(trimmed)"
+        }
     }
 }
 

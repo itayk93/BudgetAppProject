@@ -253,9 +253,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
     }
 
     private func isTransactionInCurrentMonth(_ transaction: Transaction) -> Bool {
-        guard let transactionDate = transaction.parsedDate else { return false }
-        let calendar = Calendar.current
-        return calendar.isDate(transactionDate, equalTo: currentMonthDate, toGranularity: .month)
+        return transaction.flowMonthKey == currentMonthKey
     }
 
     // MARK: - Init
