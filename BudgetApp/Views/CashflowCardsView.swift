@@ -1371,56 +1371,81 @@ struct CashflowCardsView: View {
         private let debounceDelay: UInt64 = 500_000_000 // 0.5s
         var body: some View {
             NavigationStack {
-                List {
-                    Section(header: Text("תוצאות (\(results.count))").frame(maxWidth: .infinity, alignment: .leading)) {
-                        if !isReadyToSearch {
-                            Text("הקלד לפחות שתי אותיות כדי להתחיל לחפש")
-                                .font(.footnote)
-                                .foregroundColor(.secondary)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                .multilineTextAlignment(.trailing)
-                        } else if results.isEmpty {
-                            Text("לא נמצאו עסקאות")
-                                .font(.footnote)
-                                .frame(maxWidth: .infinity, alignment: .trailing)
-                                .multilineTextAlignment(.trailing)
-                        }
+                ZStack(alignment: .bottom) {
+                    List {
+                        Section(header: Text("תוצאות (\(results.count))").frame(maxWidth: .infinity, alignment: .leading)) {
+                            if !isReadyToSearch {
+                                Text("הקלד לפחות שתי אותיות כדי להתחיל לחפש")
+                                    .font(.footnote)
+                                    .foregroundColor(.secondary)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .multilineTextAlignment(.trailing)
+                            } else if results.isEmpty {
+                                Text("לא נמצאו עסקאות")
+                                    .font(.footnote)
+                                    .frame(maxWidth: .infinity, alignment: .trailing)
+                                    .multilineTextAlignment(.trailing)
+                            }
 
-                        ForEach(results, id: \.id) { tx in
-                            TransactionSearchRow(transaction: tx, currencySymbol: currencySymbol)
-                                .contentShape(Rectangle())
-                                .onTapGesture {
-                                    editingTransaction = tx
-                                }
+                            ForEach(results, id: \.id) { tx in
+                                TransactionSearchRow(transaction: tx, currencySymbol: currencySymbol)
+                                    .contentShape(Rectangle())
+                                    .onTapGesture {
+                                        editingTransaction = tx
+                                    }
+                            }
                         }
                     }
-                }
-                .sheet(item: $editingTransaction) { transaction in
-                    EditTransactionView(
-                        transaction: transaction,
-                        onSave: { updatedTx in
-                            Task {
-                                try? await vm.updateTransaction(
-                                    updatedTx,
-                                    categoryName: updatedTx.effectiveCategoryName,
-                                    notes: updatedTx.notes,
-                                    flowMonth: updatedTx.flow_month
-                                )
-                                editingTransaction = nil
-                            }
-                        },
-                        onDelete: { deletedTx in
-                            Task {
-                                await vm.deleteTransaction(deletedTx)
-                                editingTransaction = nil
-                            }
-                        },
-                        onCancel: {
-                            editingTransaction = nil
+                    .listStyle(.insetGrouped)
+
+                    if let transaction = editingTransaction {
+                        ZStack {
+                            Color.black.opacity(0.3)
+                                .ignoresSafeArea()
+                                .onTapGesture {
+                                    withAnimation {
+                                        editingTransaction = nil
+                                    }
+                                }
+
+                            EditTransactionView(
+                                transaction: transaction,
+                                onSave: { updatedTx in
+                                    Task {
+                                        try? await vm.updateTransaction(
+                                            updatedTx,
+                                            categoryName: updatedTx.effectiveCategoryName,
+                                            notes: updatedTx.notes,
+                                            flowMonth: updatedTx.flow_month
+                                        )
+                                        await MainActor.run {
+                                            withAnimation {
+                                                editingTransaction = nil
+                                            }
+                                        }
+                                    }
+                                },
+                                onDelete: { deletedTx in
+                                    Task {
+                                        await vm.deleteTransaction(deletedTx)
+                                        await MainActor.run {
+                                            withAnimation {
+                                                editingTransaction = nil
+                                            }
+                                        }
+                                    }
+                                },
+                                onCancel: {
+                                    withAnimation {
+                                        editingTransaction = nil
+                                    }
+                                }
+                            )
+                            .transition(.move(edge: .bottom))
                         }
-                    )
+                        .zIndex(100)
+                    }
                 }
-                .listStyle(.insetGrouped)
                 .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .always))
                 .navigationTitle("חיפוש עסקאות")
                 .toolbar {
@@ -1432,7 +1457,6 @@ struct CashflowCardsView: View {
                 .onAppear {
                     AppLogger.log("🔍 TransactionSearchSheet appeared (filter active=\(filter.isActive))")
                 }
-
                 .onChange(of: searchText) { _, newValue in
                     AppLogger.log("🔍 TransactionSearchSheet search text updated: '\(newValue)'")
                     debounceTask?.cancel()

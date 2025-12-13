@@ -8,7 +8,7 @@ struct ReviewedTransactionsSearchView: View {
     @State private var toastMessage: String?
     @State private var toastWorkItem: DispatchWorkItem?
     @State private var editingTransaction: Transaction?
-    @EnvironmentObject private var vmAuth: AppState // Assuming AppState is needed or VM is sufficient. Since EditTransactionView uses CashFlowDashboardViewModel, we might need to conform or pass actions.
+    @EnvironmentObject private var vm: CashFlowDashboardViewModel
     // EditTransactionView expects `onSave` and `onDelete`. We can implement them using `viewModel`.
 
 
@@ -57,6 +57,47 @@ struct ReviewedTransactionsSearchView: View {
                     .padding(.horizontal, 24)
             }
         }
+        .overlay(alignment: .center) {
+            if let transaction = editingTransaction {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                        .onTapGesture {
+                            withAnimation {
+                                editingTransaction = nil
+                            }
+                        }
+
+                    EditTransactionView(
+                        transaction: transaction,
+                        onSave: { _ in
+                            withAnimation {
+                                editingTransaction = nil
+                            }
+                            scheduleSearch(for: searchText)
+                        },
+                        onDelete: { deletedTx in
+                            Task {
+                                await vm.deleteTransaction(deletedTx)
+                                await MainActor.run {
+                                    withAnimation {
+                                        editingTransaction = nil
+                                    }
+                                    scheduleSearch(for: searchText)
+                                }
+                            }
+                        },
+                        onCancel: {
+                            withAnimation {
+                                editingTransaction = nil
+                            }
+                        }
+                    )
+                    .transition(.move(edge: .bottom))
+                }
+                .zIndex(100)
+            }
+        }
         .confirmationDialog(
             "החזרת עסקאות ל־pending",
             isPresented: $showingRevertConfirmation,
@@ -68,39 +109,6 @@ struct ReviewedTransactionsSearchView: View {
             Button("ביטול", role: .cancel) {}
         } message: {
             Text("אתה עומד להחזיר את העסקאות שנבחרו חזרה למצב pending.")
-        }
-        .sheet(item: $editingTransaction) { transaction in
-            EditTransactionView(
-                transaction: transaction,
-                onSave: { updatedTx in
-                    // In a search view, we might just reload or update the local list.
-                    // The ViewModel usually handles updates.
-                    // Assuming viewModel has a way to refresh or we just let CashFlowDashboardViewModel handle it if it's the environment object.
-                    // However, `ReviewedTransactionsSearchView` has its own VM.
-                    // Let's assume we want to refresh the search or just dismiss.
-                    editingTransaction = nil
-                    // If the update happens via the main VM, this view might need to observe changes or refresh.
-                    scheduleSearch(for: searchText) 
-                },
-                onDelete: { deletedTx in
-                     Task {
-                        // Assuming the VM has a delete function or we can add one.
-                        // If not, we might need to implement it.
-                        // `ReviewedTransactionsSearchViewModel` might not have delete.
-                        // But `CashflowCardsView` passes `vm.deleteTransaction`.
-                        // Let's check `ReviewedTransactionsSearchViewModel` capabilities if possible, or use the global VM if available.
-                        // For now, let's just close the sheet and refresh.
-                        editingTransaction = nil
-                        scheduleSearch(for: searchText)
-                     }
-                },
-                onCancel: {
-                    editingTransaction = nil
-                }
-            )
-            // EditTransactionView relies on CashFlowDashboardViewModel environment object.
-            // Ensure this view has it or pass it.
-            // ReviewedTransactionsSearchView seems to be used within the main app structure so it likely has the environment.
         }
     }
 
@@ -176,10 +184,50 @@ struct ReviewedTransactionsSearchView: View {
                     ForEach(viewModel.transactions, id: \.id) { transaction in
                         transactionCard(transaction)
                     }
+                    if viewModel.canLoadOlderResults || viewModel.isLoadingOlderResults {
+                        loadOlderButton
+                    }
                 }
             }
         }
         .frame(maxWidth: .infinity)
+    }
+
+    private var loadOlderButton: some View {
+        Button {
+            Task { await viewModel.loadOlderResults() }
+        } label: {
+            VStack(spacing: 6) {
+                HStack {
+                    Text("טען תוצאות ישנות יותר")
+                        .font(.headline)
+                        .foregroundColor(.blue)
+                    Spacer()
+                    if viewModel.isLoadingOlderResults {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle())
+                    }
+                }
+                if let label = viewModel.earliestLoadedMonthLabel {
+                    Text("(מציג תוצאות מ\(label))")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .trailing)
+                }
+            }
+            .padding()
+            .frame(maxWidth: .infinity)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .strokeBorder(Color.blue.opacity(0.7), lineWidth: 1.5)
+                    .background(
+                        RoundedRectangle(cornerRadius: 16)
+                            .fill(Color(UIColor.systemBackground))
+                    )
+            )
+        }
+        .disabled(viewModel.isLoadingOlderResults)
+        .opacity(viewModel.isLoadingOlderResults ? 0.8 : 1)
     }
 
     private func transactionCard(_ transaction: Transaction) -> some View {
