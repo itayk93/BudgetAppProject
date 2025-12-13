@@ -422,12 +422,28 @@ struct SplitTransactionSheet: View {
         let safeId = String(id)
         let safeSplits = Array(splits)
 
-        print("🔍 [SPLIT DEBUG] Calling onSubmit closure...")
-        onSubmit(safeId, safeSplits)
-        print("✅ [SPLIT DEBUG] onSubmit closure completed successfully")
-        isSubmitting = false
-        onSuccess?()
-        dismiss()
+        Task {
+            do {
+                print("🔍 [SPLIT DEBUG] Calling TransactionsService.splitTransaction")
+                try await categoryService.splitTransaction(
+                    originalTransactionId: safeId,
+                    splits: safeSplits
+                )
+                await MainActor.run {
+                    print("🔍 [SPLIT DEBUG] Calling onSubmit closure...")
+                    onSubmit(safeId, safeSplits)
+                    print("✅ [SPLIT DEBUG] onSubmit closure completed successfully")
+                    isSubmitting = false
+                    onSuccess?()
+                    dismiss()
+                }
+            } catch {
+                await MainActor.run {
+                    isSubmitting = false
+                    errorMessage = error.localizedDescription
+                }
+            }
+        }
     }
 
     private func validateEntries() -> String? {
