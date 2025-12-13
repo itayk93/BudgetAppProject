@@ -676,8 +676,13 @@ final class CashFlowDashboardViewModel: ObservableObject {
                     }
                     let targetCategory = payload.category_name ?? transaction.effectiveCategoryName
                     try await supabase.updateCategory(transactionID: transaction.id, categoryName: targetCategory, note: notes)
-                } else {
-                    throw error
+                }
+                if let note = notes {
+                    do {
+                        try await PendingTransactionNotesService.updateNoteAsync(transactionID: transaction.id, note: note)
+                    } catch {
+                        AppLogger.log("⚠️ Failed to update note fallback: \(error)", force: true)
+                    }
                 }
             } else {
                 throw error
