@@ -1366,9 +1366,62 @@ struct CashflowCardsView: View {
         @State private var debouncedQuery: String = ""
         @State private var debounceTask: Task<Void, Never>?
         @State private var editingTransaction: Transaction? = nil
+        @State private var windowChunkCount = 1
 
         private let minSearchLength = 2
         private let debounceDelay: UInt64 = 500_000_000 // 0.5s
+        private let monthsPerChunk = 4
+
+        private static let monthKeyFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM"
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            return formatter
+        }()
+
+        private static let displayMonthFormatter: DateFormatter = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "LLLL yyyy"
+            formatter.locale = Locale(identifier: "he_IL")
+            return formatter
+        }()
+
+        private var visibleMonthWindow: Int {
+            max(monthsPerChunk * max(windowChunkCount, 1), monthsPerChunk)
+        }
+
+        private var windowStartKey: String? {
+            let calendar = Calendar(identifier: .gregorian)
+            guard
+                let startOfCurrentMonth = calendar.date(from: calendar.dateComponents([.year, .month], from: Date())),
+                let startDate = calendar.date(byAdding: .month, value: -(visibleMonthWindow - 1), to: startOfCurrentMonth)
+            else {
+                return nil
+            }
+            return Self.monthKeyFormatter.string(from: startDate)
+        }
+
+        private var windowStartLabel: String? {
+            guard let key = windowStartKey,
+                  let date = Self.monthKeyFormatter.date(from: key)
+            else { return nil }
+            return Self.displayMonthFormatter.string(from: date)
+        }
+
+        private var earliestAvailableMonthKey: String? {
+            vm.transactions.compactMap { $0.flowMonthKey }.min()
+        }
+
+        private var canLoadMoreMonths: Bool {
+            guard
+                let earliest = earliestAvailableMonthKey,
+                let startKey = windowStartKey
+            else {
+                return false
+            }
+            return earliest < startKey
+        }
+
         var body: some View {
             NavigationStack {
                 ZStack(alignment: .bottom) {
@@ -1393,6 +1446,11 @@ struct CashflowCardsView: View {
                                     .onTapGesture {
                                         editingTransaction = tx
                                     }
+                            }
+                        }
+                        if isReadyToSearch && canLoadMoreMonths {
+                            Section {
+                                loadOlderResultsButton
                             }
                         }
                     }
@@ -1470,6 +1528,9 @@ struct CashflowCardsView: View {
                         }
                     }
                 }
+                .onChange(of: debouncedQuery) { _, _ in
+                    windowChunkCount = 1
+                }
                 .onDisappear {
                     debounceTask?.cancel()
                 }
@@ -1479,12 +1540,22 @@ struct CashflowCardsView: View {
         private var results: [Transaction] {
             guard isReadyToSearch else { return [] }
             return vm.transactions
-                .filter { filter.matches($0, accountName: $0.accountDisplayName) && matchesSearchText($0, query: debouncedQuery) }
+                .filter { filter.matches($0, accountName: $0.accountDisplayName) && matchesSearchText($0, query: debouncedQuery) && transactionInWindow($0) }
                 .sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
         }
 
         private var isReadyToSearch: Bool {
             debouncedQuery.trimmingCharacters(in: .whitespacesAndNewlines).count >= minSearchLength
+        }
+
+        private func transactionInWindow(_ transaction: Transaction) -> Bool {
+            guard
+                let monthKey = transaction.flowMonthKey,
+                let startKey = windowStartKey
+            else {
+                return false
+            }
+            return monthKey >= startKey
         }
 
         private func matchesSearchText(_ transaction: Transaction, query: String) -> Bool {
@@ -1496,6 +1567,37 @@ struct CashflowCardsView: View {
             if transaction.accountDisplayName.lowercased().contains(lower) { return true }
             if formatNumber(abs(transaction.normalizedAmount)).lowercased().contains(lower) { return true }
             return false
+        }
+
+        private var loadOlderResultsButton: some View {
+            Button {
+                windowChunkCount += 1
+            } label: {
+                VStack(spacing: 6) {
+                    HStack {
+                        Text("טען תוצאות ישנות יותר")
+                            .font(.headline)
+                            .foregroundColor(.blue)
+                        Spacer()
+                    }
+                    if let label = windowStartLabel {
+                        Text("(מציג תוצאות מ\(label))")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                    }
+                }
+                .padding()
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(Color.blue.opacity(0.7), lineWidth: 1.5)
+                        .background(
+                            RoundedRectangle(cornerRadius: 16)
+                                .fill(Color(UIColor.systemBackground))
+                        )
+                )
+            }
         }
 
         private func formatNumber(_ value: Double) -> String {
