@@ -1076,18 +1076,19 @@ final class CashFlowDashboardViewModel: ObservableObject {
         for (groupName, members) in sharedGroupMembers {
             let cal = Calendar(identifier: .gregorian)
             let weeksInMonth = Self.numberOfWeeks(in: currentMonthDate, calendar: cal)
-            
-            if let groupSummary = buildGroupSummary(title: groupName, members: members, weeksInMonth: weeksInMonth) {
-                // The group's order is the minimum order of its members.
-                // Since members are sourced from a sorted list, the first member has the min order.
-                let firstMemberName = members.first!.name
-                let orderFromMap = categoryOrderMap[firstMemberName]?.displayOrder
-                let groupOrder = orderFromMap ?? Int.max
-                
-                print("🔍 [GROUP SORTING] Group: '\(groupName)'")
-                print("  - First member: '\(firstMemberName)'")
-                print("  - displayOrder from map: \(orderFromMap.map(String.init) ?? "nil")")
-                print("  - Final groupOrder: \(groupOrder)")
+            let membersSorted = members.sorted { lhs, rhs in
+                let leftOrder = categoryOrderMap[lhs.name]?.displayOrder ?? Int.max
+                let rightOrder = categoryOrderMap[rhs.name]?.displayOrder ?? Int.max
+                if leftOrder != rightOrder {
+                    return leftOrder < rightOrder
+                }
+                return lhs.name.localizedCompare(rhs.name) == .orderedAscending
+            }
+
+            if let groupSummary = buildGroupSummary(title: groupName, members: membersSorted, weeksInMonth: weeksInMonth) {
+                let groupOrder = membersSorted
+                    .compactMap { categoryOrderMap[$0.name]?.displayOrder }
+                    .min() ?? Int.max
 
                 displayableItems.append(DisplayableItem(item: .sharedGroup(groupSummary), order: groupOrder))
                 newSharedGroups[groupName] = groupSummary
