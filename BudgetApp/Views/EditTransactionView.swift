@@ -87,9 +87,9 @@ struct EditTransactionView: View {
                 transaction: transaction,
                 availableCategories: availableCategories,
                 onSubmit: { _, _ in
-                    showSplitTransaction = false
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        // Placeholder for potential post-split UI feedback
+                    Task { @MainActor in
+                        await vm.refreshData()
+                        showSplitTransaction = false
                     }
                 }
             )
@@ -309,6 +309,11 @@ struct EditTransactionView: View {
         hasPendingChanges = true
     }
 
+    private func commitCategoryChange() {
+        applyCategoryChange()
+        saveTransaction()
+    }
+
     // MARK: - Hero helpers
 
     private var displayCategoryName: String {
@@ -459,7 +464,7 @@ struct EditTransactionView: View {
                     }
 
                     Button {
-                        applyCategoryChange()
+                        commitCategoryChange()
                     } label: {
                         Text("שמור קטגוריה")
                             .font(.body.weight(.semibold))
