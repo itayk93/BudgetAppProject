@@ -361,6 +361,7 @@ struct CashflowCardsView: View {
                 category: cat,
                 currency: vm.selectedCashFlow?.currency ?? "ILS",
                 isWeekly: cat.weeklyDisplay,
+                isCurrentMonth: vm.isCurrentMonth,
                 onEdit: {
                     selectedCategoryForEdit = cat
                     editingTargetValue = cat.target
@@ -1803,7 +1804,16 @@ struct CashflowCardsView: View {
 // MARK: - Sections
 private extension CashflowCardsView {
     private func incomeSection(onEdit: @escaping (Transaction) -> Void) -> some View {
-        SectionCard(title: "הכנסות", accent: .green, expectedLabel: "צפוי להיכנס", expectedValue: vm.incomeExpected, actualLabel: "נכנס", actualValue: vm.incomeTotal, currency: vm.selectedCashFlow?.currency ?? "ILS") {
+        SectionCard(
+            title: "הכנסות",
+            accent: .green,
+            expectedLabel: "צפוי להיכנס",
+            expectedValue: vm.incomeExpected,
+            actualLabel: "נכנס",
+            actualValue: vm.incomeTotal,
+            currency: vm.selectedCashFlow?.currency ?? "ILS",
+            isCurrentMonth: vm.isCurrentMonth
+        ) {
             ForEach(vm.incomeTransactions, id: \.id) { t in
                 transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .green, onEdit: onEdit)
             }
@@ -1811,7 +1821,16 @@ private extension CashflowCardsView {
     }
 
     private func savingsSection(onEdit: @escaping (Transaction) -> Void) -> some View {
-        SectionCard(title: "הפקדות לחיסכון", accent: .orange, expectedLabel: "צפוי לצאת", expectedValue: vm.savingsExpected, actualLabel: "יצא", actualValue: vm.savingsTotal, currency: vm.selectedCashFlow?.currency ?? "ILS") {
+        SectionCard(
+            title: "הפקדות לחיסכון",
+            accent: .orange,
+            expectedLabel: "צפוי לצאת",
+            expectedValue: vm.savingsExpected,
+            actualLabel: "יצא",
+            actualValue: vm.savingsTotal,
+            currency: vm.selectedCashFlow?.currency ?? "ILS",
+            isCurrentMonth: vm.isCurrentMonth
+        ) {
             ForEach(vm.savingsTransactions, id: \.id) { t in
                 transactionRow(t, currency: vm.selectedCashFlow?.currency ?? "ILS", highlight: .orange, onEdit: onEdit)
             }
@@ -1962,6 +1981,7 @@ private extension CashflowCardsView {
         let actualLabel: String
         let actualValue: Double
         let currency: String
+        let isCurrentMonth: Bool
         @ViewBuilder var content: Content
         @State private var expanded = false
 
@@ -1974,16 +1994,36 @@ private extension CashflowCardsView {
                     }
                     HStack { Text(title).font(.title3).bold(); Spacer() }
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text(expectedLabel).font(.footnote).foregroundColor(.secondary)
-                                HStack(spacing: 4) {
-                                    Text(formatAmount(expectedValue)).font(.headline).foregroundColor(accent).monospacedDigit()
-                                    Text("₪").font(.caption).foregroundColor(accent)
-                                }
+                        if isCurrentMonth {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(expectedLabel).font(.footnote).foregroundColor(.secondary)
+                                    HStack(spacing: 4) {
+                                        Text(formatAmount(expectedValue)).font(.headline).foregroundColor(accent).monospacedDigit()
+                                        Text("₪").font(.caption).foregroundColor(accent)
+                                    }
 
+                                }
+                                Spacer()
                             }
-                            Spacer()
+                        } else {
+                            HStack(alignment: .firstTextBaseline) {
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(actualLabel).font(.footnote).foregroundColor(.secondary)
+                                    HStack(spacing: 4) {
+                                        Text(formatAmount(actualValue)).font(.title).fontWeight(.bold).foregroundColor(accent).monospacedDigit()
+                                        Text("₪").font(.subheadline).foregroundColor(accent)
+                                    }
+                                }
+                                Spacer()
+                                VStack(alignment: .trailing, spacing: 2) {
+                                    Text(expectedLabel).font(.caption2).foregroundColor(.secondary)
+                                    HStack(spacing: 4) {
+                                        Text(formatAmount(expectedValue)).font(.caption).foregroundColor(.secondary).monospacedDigit()
+                                        Text("₪").font(.caption2).foregroundColor(.secondary)
+                                    }
+                                }
+                            }
                         }
                         ProgressCapsule(progress: progress, color: accent).frame(height: 12)
                     }
@@ -2043,6 +2083,7 @@ private extension CashflowCardsView {
         let category: CashFlowDashboardViewModel.CategorySummary
         let currency: String
         let isWeekly: Bool
+        let isCurrentMonth: Bool
         let onEdit: (() -> Void)?
         let onEditBudget: (() -> Void)?
         let onPlanAhead: (() -> Void)?
@@ -2181,16 +2222,36 @@ private extension CashflowCardsView {
                     } else {
                         if targetValue > 0 {
                             HStack {
-                                Text("צפוי היה לצאת")
-                                    .font(.footnote)
-                                    .foregroundColor(.secondary)
-                                Spacer()
-                                HStack(spacing: 4) {
-                                    Text(formatAmount(targetValue))
-                                        .font(.subheadline)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Text(isCurrentMonth ? "צפוי היה לצאת" : "סה\"כ יצא")
+                                        .font(.footnote)
                                         .foregroundColor(.secondary)
-                                        .monospacedDigit()
-                                    Text("₪").font(.caption2).foregroundColor(.secondary)
+                                    HStack(spacing: 4) {
+                                        Text(formatAmount(isCurrentMonth ? targetValue : category.totalSpent))
+                                            .font(isCurrentMonth ? .subheadline : .headline)
+                                            .foregroundColor(isCurrentMonth ? .secondary : accentColor)
+                                            .monospacedDigit()
+                                        Text("₪")
+                                            .font(isCurrentMonth ? .caption2 : .subheadline)
+                                            .foregroundColor(isCurrentMonth ? .secondary : accentColor)
+                                    }
+                                }
+                                Spacer()
+                                if !isCurrentMonth {
+                                    VStack(alignment: .trailing, spacing: 2) {
+                                        Text("צפוי היה לצאת")
+                                            .font(.caption2)
+                                            .foregroundColor(.secondary)
+                                        HStack(spacing: 4) {
+                                            Text(formatAmount(targetValue))
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
+                                                .monospacedDigit()
+                                            Text("₪")
+                                                .font(.caption2)
+                                                .foregroundColor(.secondary)
+                                        }
+                                    }
                                 }
                             }
 
@@ -2329,11 +2390,8 @@ private extension CashflowCardsView {
             .padding(.vertical, 4)
         }
         private func transactions(for week: Int) -> [Transaction] {
-            let cal = Calendar(identifier: .gregorian)
-            return category.transactions.filter { tx in
-                guard let date = tx.parsedDate else { return false }
-                return cal.component(.weekOfMonth, from: date) == week
-            }
+            // Use the bucketed transactions provided by the ViewModel so flow_month overrides stick to the intended week.
+            return category.weeklyTransactions[week] ?? []
         }
     }
 
@@ -2446,7 +2504,16 @@ private extension CashflowCardsView {
         let currency: String
         let onEditTransaction: (Transaction) -> Void
         var body: some View {
-            SectionCard(title: group.title, accent: accent, expectedLabel: "צפוי לצאת", expectedValue: group.target, actualLabel: "יצא", actualValue: group.totalSpent, currency: currency) {
+            SectionCard(
+                title: group.title,
+                accent: accent,
+                expectedLabel: "צפוי לצאת",
+                expectedValue: group.target,
+                actualLabel: "יצא",
+                actualValue: group.totalSpent,
+                currency: currency,
+                isCurrentMonth: vm.isCurrentMonth
+            ) {
                 VStack(spacing: 0) {
                     HStack {
                         Spacer()
