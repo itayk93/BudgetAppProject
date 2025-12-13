@@ -1086,22 +1086,23 @@ final class CashFlowDashboardViewModel: ObservableObject {
             }
 
             if let groupSummary = buildGroupSummary(title: groupName, members: membersSorted, weeksInMonth: weeksInMonth) {
-                let groupOrder = membersSorted
-                    .compactMap { categoryOrderMap[$0.name]?.displayOrder }
-                    .min() ?? Int.max
+                let groupOrder = categoryOrderMap[groupName]?.displayOrder ??
+                    (membersSorted.compactMap { categoryOrderMap[$0.name]?.displayOrder }.min() ?? Int.max)
 
                 displayableItems.append(DisplayableItem(item: .sharedGroup(groupSummary), order: groupOrder))
                 newSharedGroups[groupName] = groupSummary
             }
         }
-        
+
         // 5. Sort the final list based on the calculated order.
-        displayableItems.sort { $0.order < $1.order }
+        displayableItems.sort {
+            if $0.order != $1.order { return $0.order < $1.order }
+            return itemOrderKey($0.item) < itemOrderKey($1.item)
+        }
 
         // 6. Finalize the `orderedItems` and `sharedGroups` for the UI.
         self.orderedItems = displayableItems.map { $0.item }
         self.sharedGroups = newSharedGroups
-
 
         // Debug: Print final ordered items
         print("📋 [ORDERED ITEMS] Final list (\(orderedItems.count) items):")
@@ -1193,6 +1194,16 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private static func numberOfWeeks(in date: Date, calendar: Calendar) -> Int {
         let range = calendar.range(of: .weekOfMonth, in: .month, for: date)
         return range?.count ?? 4
+    }
+
+    private func itemOrderKey(_ item: Item) -> String {
+        switch item {
+        case .income: return "income"
+        case .savings: return "savings"
+        case .nonCashflow: return "nonCashflow"
+        case .sharedGroup(let group): return "shared:\(group.title)"
+        case .category(let cat): return "category:\(cat.name)"
+        }
     }
 
     private func recalculateTotals(for txs: [Transaction]) {
