@@ -2112,15 +2112,15 @@ private extension CashflowCardsView {
                     HStack(alignment: .top, spacing: 12) {
                         VStack(alignment: .trailing, spacing: 8) {
                             HStack(spacing: 6) {
-                                Image(systemName: categoryIcon(for: category.name)).foregroundColor(.secondary)
                                 Text(category.name).font(.title3).bold()
+                                Image(systemName: categoryIcon(for: category.name)).foregroundColor(.secondary)
                             }
                             if targetValue > 0 {
                                 statusBadge(targetValue: targetValue, spent: category.totalSpent)
                             }
                         }
                         Spacer()
-                        VStack(alignment: .trailing, spacing: 4) {
+                        VStack(alignment: .leading, spacing: 4) {
                             Text("יצא").font(.footnote).foregroundColor(.secondary)
                             HStack(alignment: .firstTextBaseline, spacing: 4) {
                                 Text(formatAmount(category.totalSpent))
@@ -2134,16 +2134,18 @@ private extension CashflowCardsView {
                         }
                     }
                     VStack(alignment: .leading, spacing: 8) {
-                        HStack {
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("יצא").font(.footnote).foregroundColor(.secondary)
+                        if targetValue > 0 {
+                            HStack {
+                                Text("צפוי היה לצאת").font(.footnote).foregroundColor(.secondary)
+                                Spacer()
                                 HStack(spacing: 4) {
-                                    Text(formatAmount(category.totalSpent)).font(.headline).foregroundColor(accentColor).monospacedDigit()
-                                    Text("₪").font(.caption).foregroundColor(accentColor)
+                                    Text(formatAmount(targetValue))
+                                        .font(.subheadline)
+                                        .foregroundColor(.secondary)
+                                        .monospacedDigit()
+                                    Text("₪").font(.caption).foregroundColor(.secondary)
                                 }
-
                             }
-                            Spacer()
                         }
                         ProgressCapsule(progress: targetValue > 0 ? category.totalSpent / targetValue : 0, color: accentColor)
                             .frame(height: 12)
