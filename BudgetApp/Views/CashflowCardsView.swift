@@ -2109,14 +2109,29 @@ private extension CashflowCardsView {
                         }
                         Spacer()
                     }
-                    HStack(spacing: 8) {
-                        Image(systemName: categoryIcon(for: category.name))
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        if targetValue > 0 {
-                            statusBadge(targetValue: targetValue, spent: category.totalSpent)
+                    HStack(alignment: .top, spacing: 12) {
+                        VStack(alignment: .trailing, spacing: 8) {
+                            HStack(spacing: 6) {
+                                Image(systemName: categoryIcon(for: category.name)).foregroundColor(.secondary)
+                                Text(category.name).font(.title3).bold()
+                            }
+                            if targetValue > 0 {
+                                statusBadge(targetValue: targetValue, spent: category.totalSpent)
+                            }
                         }
-                        Text(category.name).font(.title3).bold()
+                        Spacer()
+                        VStack(alignment: .trailing, spacing: 4) {
+                            Text("יצא").font(.footnote).foregroundColor(.secondary)
+                            HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                Text(formatAmount(category.totalSpent))
+                                    .font(.system(size: 32, weight: .bold))
+                                    .foregroundColor(accentColor)
+                                    .monospacedDigit()
+                                Text("₪")
+                                    .font(.headline)
+                                    .foregroundColor(accentColor)
+                            }
+                        }
                     }
                     VStack(alignment: .leading, spacing: 8) {
                         HStack {
