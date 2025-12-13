@@ -49,6 +49,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         let weekly: [Int: Double]          // week -> spent
         let weeklyExpected: Double         // per-week target if weekly mode
         let transactions: [Transaction]    // month transactions for this category
+        let weeklyTransactions: [Int: [Transaction]] // transactions bucketed by week
 
         var isFixed: Bool {
             if let t = target, t > 0 { return true }
@@ -63,7 +64,8 @@ final class CashFlowDashboardViewModel: ObservableObject {
                    lhs.totalSpent == rhs.totalSpent &&
                    lhs.weeksInMonth == rhs.weeksInMonth &&
                    lhs.weekly == rhs.weekly &&
-                   lhs.weeklyExpected == rhs.weeklyExpected
+                   lhs.weeklyExpected == rhs.weeklyExpected &&
+                   lhs.weeklyTransactions == rhs.weeklyTransactions
         }
 
         // Required for Hashable
@@ -80,6 +82,8 @@ final class CashFlowDashboardViewModel: ObservableObject {
             if !transactions.isEmpty {
                 hasher.combine(transactions[0].id)
             }
+            // Hash weekly transactions roughly
+            hasher.combine(weeklyTransactions.keys.sorted())
         }
     }
 
@@ -772,6 +776,8 @@ final class CashFlowDashboardViewModel: ObservableObject {
     ) -> [CategorySummary] {
         let cal = Calendar(identifier: .gregorian)
         let weeksInMonth = Self.numberOfWeeks(in: currentMonthDate, calendar: cal)
+        let monthStart = cal.date(from: cal.dateComponents([.year, .month], from: currentMonthDate)) ?? currentMonthDate
+        let lastDayOfMonth = cal.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) ?? currentMonthDate
 
         var summaries: [CategorySummary] = []
 
@@ -828,18 +834,38 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
             let weeklyExpected = (target ?? 0) / Double(max(weeksInMonth, 1))
             var weekly: [Int: Double] = [:]
+            var weeklyTransactions: [Int: [Transaction]] = [:]
+
             for t in txs {
-                if let d = t.parsedDate {
-                    let w = cal.component(.weekOfMonth, from: d)
-                    if isIncome {
-                        weekly[w, default: 0] += max(0, t.normalizedAmount)
-                    } else { // For savings and non-cashflow
-                        weekly[w, default: 0] += abs(min(0, t.normalizedAmount))
+                // Use transaction date if it belongs to the current flow month;
+                // otherwise bucket into first/last week depending on whether it comes from the past or future.
+                let dateForWeek: Date = {
+                    guard let d = t.parsedDate else { return lastDayOfMonth }
+                    if cal.isDate(d, equalTo: currentMonthDate, toGranularity: .month) {
+                        return d
                     }
+                    // If the original date is before the flow month, place in week 1.
+                    if d < monthStart {
+                        return monthStart
+                    }
+                    // Otherwise (after the flow month), place in the last week.
+                    return lastDayOfMonth
+                }()
+
+                let w = cal.component(.weekOfMonth, from: dateForWeek)
+
+                if isIncome {
+                    weekly[w, default: 0] += max(0, t.normalizedAmount)
+                } else { // For savings and non-cashflow
+                    weekly[w, default: 0] += abs(min(0, t.normalizedAmount))
                 }
+                
+                // Add transaction to the specific week bucket
+                weeklyTransactions[w, default: []].append(t)
             }
 
             let sum = txs.reduce(0) { total, transaction in
+
                 if isIncome {
                     return total + max(0, transaction.normalizedAmount)
                 } else { // For savings and non-cashflow
@@ -855,7 +881,10 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 weeksInMonth: weeksInMonth,
                 weekly: weekly,
                 weeklyExpected: weeklyExpected,
-                transactions: txs.sorted { ($0.parsedDate ?? .distantPast) < ($1.parsedDate ?? .distantPast) }
+                transactions: txs.sorted { ($0.parsedDate ?? .distantPast) < ($1.parsedDate ?? .distantPast) },
+                weeklyTransactions: weeklyTransactions.mapValues {
+                    $0.sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
+                }
             ))
         }
 
@@ -870,15 +899,19 @@ final class CashFlowDashboardViewModel: ObservableObject {
                                      (isNonCashflow && (cfg.sharedCategory == "לא בתזרים" || emptyCat.categoryName.contains("לא תזרימיות")))
 
                     if isRelevant {
+                        let targetVal = cfg.monthlyTarget.flatMap { Double($0) }
+                        let expectedVal = (targetVal ?? 0) / Double(max(weeksInMonth, 1))
+                        
                         summaries.append(.init(
                             name: emptyCat.categoryName,
-                            target: cfg.monthlyTarget.flatMap { Double($0) },
+                            target: targetVal,
                             isTargetSuggested: false,
                             totalSpent: 0,
                             weeksInMonth: weeksInMonth,
                             weekly: [:],
-                            weeklyExpected: (cfg.monthlyTarget.flatMap { Double($0) } ?? 0) / Double(max(weeksInMonth, 1)),
-                            transactions: []
+                            weeklyExpected: expectedVal,
+                            transactions: [],
+                            weeklyTransactions: [:]
                         ))
                     }
                 }
