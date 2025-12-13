@@ -360,7 +360,7 @@ struct CashflowCardsView: View {
             CategorySummaryCard(
                 category: cat,
                 currency: vm.selectedCashFlow?.currency ?? "ILS",
-                isWeekly: true,
+                isWeekly: cat.weeklyDisplay,
                 onEdit: {
                     selectedCategoryForEdit = cat
                     editingTargetValue = cat.target
@@ -615,7 +615,7 @@ struct CashflowCardsView: View {
 
     private var weeklyBudgetInfo: WeeklyBudgetInfo? {
         let weeklyCategories = vm.orderedItems.compactMap { item -> CashFlowDashboardViewModel.CategorySummary? in
-            if case .category(let cat) = item, !cat.isFixed && vm.isWeeklyCategory(cat.name) {
+            if case .category(let cat) = item, !cat.isFixed && cat.weeklyDisplay {
                 return cat
             }
             return nil
@@ -1470,12 +1470,16 @@ struct CashflowCardsView: View {
                                 transaction: transaction,
                                 onSave: { updatedTx in
                                     Task {
-                                        try? await vm.updateTransaction(
-                                            updatedTx,
-                                            categoryName: updatedTx.effectiveCategoryName,
-                                            notes: updatedTx.notes,
-                                            flowMonth: updatedTx.flow_month
-                                        )
+                                        do {
+                                            try await vm.updateTransaction(
+                                                updatedTx,
+                                                categoryName: updatedTx.effectiveCategoryName,
+                                                notes: updatedTx.notes,
+                                                flowMonth: updatedTx.flow_month
+                                            )
+                                        } catch {
+                                            AppLogger.log("⚠️ Failed to update reviewed transaction: \(error)", force: true)
+                                        }
                                         await MainActor.run {
                                             withAnimation {
                                                 editingTransaction = nil

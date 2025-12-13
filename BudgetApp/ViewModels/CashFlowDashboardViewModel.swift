@@ -48,6 +48,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         let weeksInMonth: Int
         let weekly: [Int: Double]          // week -> spent
         let weeklyExpected: Double         // per-week target if weekly mode
+        let weeklyDisplay: Bool            // Should show weekly breakdown UI
         let transactions: [Transaction]    // month transactions for this category
         let weeklyTransactions: [Int: [Transaction]] // transactions bucketed by week
 
@@ -65,6 +66,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                    lhs.weeksInMonth == rhs.weeksInMonth &&
                    lhs.weekly == rhs.weekly &&
                    lhs.weeklyExpected == rhs.weeklyExpected &&
+                   lhs.weeklyDisplay == rhs.weeklyDisplay &&
                    lhs.weeklyTransactions == rhs.weeklyTransactions
         }
 
@@ -76,6 +78,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
             hasher.combine(totalSpent)
             hasher.combine(weeksInMonth)
             hasher.combine(weeklyExpected)
+            hasher.combine(weeklyDisplay)
             // For the transactions array, we'll hash the count and a few key properties
             // to avoid excessive computation
             hasher.combine(transactions.count)
@@ -666,9 +669,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         } catch {
             let message = (error as? LocalizedError)?.errorDescription ?? String(describing: error)
             let is404 = message.contains("404") || message.lowercased().contains("not found")
-            let numericId = Int64(transaction.id) != nil
-            let isPending = transaction.status?.lowercased() == "pending"
-            if is404, (numericId || isPending) {
+            if is404 {
                 if let supabase = SupabaseTransactionsReviewService() {
                     if let flow = payload.flow_month {
                         try await supabase.updateFlowMonth(transactionID: transaction.id, flowMonth: flow)
@@ -836,23 +837,19 @@ final class CashFlowDashboardViewModel: ObservableObject {
             var weekly: [Int: Double] = [:]
             var weeklyTransactions: [Int: [Transaction]] = [:]
 
-            for t in txs {
-                // Use transaction date if it belongs to the current flow month;
-                // otherwise bucket into first/last week depending on whether it comes from the past or future.
-                let dateForWeek: Date = {
-                    guard let d = t.parsedDate else { return lastDayOfMonth }
-                    if cal.isDate(d, equalTo: currentMonthDate, toGranularity: .month) {
-                        return d
-                    }
-                    // If the original date is before the flow month, place in week 1.
-                    if d < monthStart {
-                        return monthStart
-                    }
-                    // Otherwise (after the flow month), place in the last week.
-                    return lastDayOfMonth
-                }()
+            let isWeeklyCategory = cfg?.weeklyDisplay ?? false
 
-                let w = cal.component(.weekOfMonth, from: dateForWeek)
+            for t in txs {
+                let parsed = t.parsedDate
+                let weekOfMonth: Int
+                if isWeeklyCategory, let d = parsed, !cal.isDate(d, equalTo: currentMonthDate, toGranularity: .month) {
+                    weekOfMonth = d < monthStart ? 1 : weeksInMonth
+                } else {
+                    let referenceDate = parsed ?? lastDayOfMonth
+                    weekOfMonth = cal.component(.weekOfMonth, from: referenceDate)
+                }
+
+                let w = weekOfMonth
 
                 if isIncome {
                     weekly[w, default: 0] += max(0, t.normalizedAmount)
@@ -881,6 +878,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 weeksInMonth: weeksInMonth,
                 weekly: weekly,
                 weeklyExpected: weeklyExpected,
+                weeklyDisplay: isWeeklyCategory,
                 transactions: txs.sorted { ($0.parsedDate ?? .distantPast) < ($1.parsedDate ?? .distantPast) },
                 weeklyTransactions: weeklyTransactions.mapValues {
                     $0.sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
@@ -910,6 +908,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                             weeksInMonth: weeksInMonth,
                             weekly: [:],
                             weeklyExpected: expectedVal,
+                            weeklyDisplay: cfg.weeklyDisplay ?? false,
                             transactions: [],
                             weeklyTransactions: [:]
                         ))
