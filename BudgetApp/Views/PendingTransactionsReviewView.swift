@@ -57,6 +57,13 @@ struct PendingTransactionsReviewView: View {
             AppLogger.log("📱 [DEBUG] PendingTransactionsReviewView appeared")
             await viewModel.refresh()
         }
+        .onChange(of: viewModel.transactions.first?.id) { oldValue, newValue in
+            if let transaction = viewModel.transactions.first {
+                heroNoteText = transaction.notes ?? ""
+            } else {
+                heroNoteText = ""
+            }
+        }
         .sheet(item: $pendingCategoryChange) { transaction in
              CategorySelectionSheet(
                 transaction: transaction,
@@ -112,23 +119,26 @@ struct PendingTransactionsReviewView: View {
 
     private func mainSheet(for transaction: Transaction, height: CGFloat) -> some View {
         VStack(spacing: 0) {
-            heroSection(for: transaction)
-            
             ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    heroSection(for: transaction)
+                    
                     secondaryActions(for: transaction)
                         .padding(.horizontal, 16)
                         .padding(.top, 16)
                         .padding(.bottom, 100)
                 }
-                .scrollDismissesKeyboard(.interactively)
-                
-                primaryActions(for: transaction)
-                    .padding(.horizontal, 16)
-                    .padding(.bottom, 32)
-                    .padding(.top, 16)
-                    .background(Color.white)
             }
-            .background(Color.white.opacity(0.98))
+            .scrollDismissesKeyboard(.interactively)
+            
+            primaryActions(for: transaction)
+                .padding(.horizontal, 16)
+                .padding(.bottom, 32)
+                .padding(.top, 16)
+                .background(Color.white)
+        }
+        .dismissKeyboardOnTap()
+        .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
         .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 0)
         .frame(maxWidth: .infinity)
@@ -547,6 +557,23 @@ struct PendingTransactionsReviewView: View {
                         }
                     }
 
+                    // Toggle for future transactions
+                    Button {
+                        withAnimation { applyToAllFuture.toggle() }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: applyToAllFuture ? "checkmark.square.fill" : "square")
+                                .font(.title3)
+                                .foregroundColor(applyToAllFuture ? .accentColor : .secondary)
+                            Text("החל על כל העסקאות העתידיות")
+                                .font(.footnote)
+                                .foregroundColor(.primary)
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .buttonStyle(.plain)
+                    
                     Button {
                         commitCategoryChange(for: transaction)
                     } label: {
@@ -582,6 +609,9 @@ struct PendingTransactionsReviewView: View {
         // dismissKeyboard() // Helper if needed
     }
 
+
+// ... existing ...
+
     private func commitCategoryChange(for transaction: Transaction) {
         let trimmedSearch = categorySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
         let chosen = selectedCategory
@@ -590,14 +620,22 @@ struct PendingTransactionsReviewView: View {
         guard !newCategory.isEmpty else { return }
         
         isSavingCategory = true
+        let shouldApplyToFuture = applyToAllFuture
+        
         Task {
-            await viewModel.reassign(transaction, to: newCategory, note: nil)
+            if shouldApplyToFuture {
+                await viewModel.reassignForFuture(transaction, to: newCategory, note: nil)
+            } else {
+                await viewModel.reassign(transaction, to: newCategory, note: nil)
+            }
+            
             await MainActor.run {
                 isSavingCategory = false
                 withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
                     showCategorySelector = false
                     categorySearchText = ""
                     selectedCategory = nil
+                    applyToAllFuture = false
                 }
             }
         }

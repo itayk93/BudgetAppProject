@@ -1484,7 +1484,7 @@ struct CashflowCardsView: View {
                                 onSave: { updatedTx in
                                     Task {
                                         do {
-                                            try await vm.updateTransaction(
+                                            _ = try await vm.updateTransaction(
                                                 updatedTx,
                                                 categoryName: updatedTx.effectiveCategoryName,
                                                 notes: updatedTx.notes,
