@@ -24,12 +24,12 @@ struct EditBudgetView: View {
                 
                 Section("תקציב") {
                     HStack {
+                        Text("₪")
+                            .foregroundColor(.secondary)
                         TextField("סכום", text: $tempValue)
 #if os(iOS)
                             .keyboardType(.decimalPad)
 #endif
-                        Text("₪")
-                            .foregroundColor(.secondary)
                     }
                 }
             }

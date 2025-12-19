@@ -6,6 +6,8 @@ import SwiftUI
 final class PendingTransactionsReviewViewModel: ObservableObject {
     @Published var transactions: [Transaction] = []
     @Published var categories: [TransactionCategory] = []
+    @Published var defaults: [BusinessCategoryDefault] = []
+
     @Published var loading = false
     @Published var errorMessage: String?
     @Published var actionMessage: String?
@@ -46,12 +48,17 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         do {
             async let txs = service.fetchPendingTransactions(for: userID, hoursBack: lookbackHours)
             async let cats = service.fetchCategoryOptions(for: userID)
-            let (transactions, categories) = try await (txs, cats)
-            print("✅ [DEBUG] Received \(transactions.count) transactions and \(categories.count) categories")
-            withAnimation(.easeInOut) {
-                self.transactions = transactions
-            }
+            let (transactions, categories, defaults) = try await (txs, cats, service.fetchBusinessCategoryDefaults(for: userID))
+            print("✅ [DEBUG] Received \(transactions.count) transactions, \(categories.count) categories, \(defaults.count) defaults")
+            
+            self.defaults = defaults
             self.categories = categories
+            
+            // Apply defaults locally
+            let updatedTransactions = Self.applyDefaults(transactions: transactions, defaults: defaults)
+            withAnimation(.easeInOut) {
+                self.transactions = updatedTransactions
+            }
             print("📊 [DEBUG] ViewModel now has \(self.transactions.count) transactions, \(self.categories.count) categories")
         } catch {
             print("❌ [DEBUG] Error during refresh: \(error)")
@@ -65,7 +72,7 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         processingTransactionID = transaction.id
         let index = removeTransaction(transaction)
         do {
-            try await service.markReviewed(transactionID: transaction.id)
+            try await service.markReviewed(transactionID: transaction.id, categoryName: transaction.effectiveCategoryName)
             actionMessage = "אישרת את \(transaction.business_name ?? "העסקה")"
         } catch {
             restore(transaction, at: index)
@@ -361,6 +368,56 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         guard let index else { return }
         withAnimation(.spring(response: 0.45, dampingFraction: 0.88)) {
             transactions.insert(transaction, at: index)
+        }
+    }
+
+    private static func applyDefaults(transactions: [Transaction], defaults: [BusinessCategoryDefault]) -> [Transaction] {
+        return transactions.map { tx in
+            // If already has a category assigned by Supabase or previously edited locally, skip
+            if let cat = tx.category_name, !cat.isEmpty { return tx }
+            
+            guard let business = tx.business_name else { return tx }
+            
+            // Find matching default
+            // Logic: first exact match, then contains match?
+            // The user query example was `like '%...%'`, suggesting partial match.
+            // Let's do a basic "business_name contains default.business_name" check or vice versa.
+            // actually, usually users save a default for "AM PM" and want it applied to "AM PM TLV".
+            // So if `tx.business_name` contains `default.business_name`.
+            
+            let match = defaults.first { def in
+                business.localizedCaseInsensitiveContains(def.business_name)
+            }
+            
+            if let match {
+                print("🪄 [DEBUG] Applying default category '\(match.category_name)' to '\(business)' (matched '\(match.business_name)')")
+                return Transaction(
+                    id: tx.id,
+                    effectiveCategoryName: match.category_name,
+                    isIncome: tx.isIncome,
+                    business_name: tx.business_name,
+                    payment_method: tx.payment_method,
+                    createdAtDate: tx.createdAtDate,
+                    currency: tx.currency,
+                    absoluteAmount: tx.absoluteAmount,
+                    notes: tx.notes,
+                    normalizedAmount: tx.normalizedAmount,
+                    excluded_from_flow: tx.excluded_from_flow,
+                    category_name: match.category_name, // Set this so effectiveCategoryName picks it up
+                    category: tx.category, // We don't have the full Category object, but effective name is enough for UI
+                    status: tx.status,
+                    user_id: tx.user_id,
+                    suppress_from_automation: tx.suppress_from_automation,
+                    manual_split_applied: tx.manual_split_applied,
+                    reviewed_at: tx.reviewed_at,
+                    source_type: tx.source_type,
+                    date: tx.date,
+                    payment_date: tx.payment_date,
+                    flow_month: tx.flow_month
+                )
+            }
+            
+            return tx
         }
     }
 

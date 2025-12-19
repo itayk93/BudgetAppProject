@@ -18,6 +18,9 @@ struct CashflowCardsView: View {
     @EnvironmentObject private var vm: CashFlowDashboardViewModel
     @EnvironmentObject private var pendingTxsVm: PendingTransactionsReviewViewModel
     @AppStorage("biometrics.enabled") private var biometricsEnabled = false
+    @AppStorage("dashboard.showWeeklyBudgetCard") private var showWeeklyBudgetCard = true
+    @AppStorage("dashboard.showMonthlyTargetCard") private var showMonthlyTargetCard = true
+    @AppStorage("dashboard.showMonthlyTrendCard") private var showMonthlyTrendCard = true
     
     @State private var showingEditTargetSheet = false
     @State private var selectedCategoryForEdit: CashFlowDashboardViewModel.CategorySummary?
@@ -125,6 +128,7 @@ struct CashflowCardsView: View {
                     categories: filterableCategories,
                     paymentMethods: paymentMethodOptions
                 )
+                .environment(\.layoutDirection, .rightToLeft)
             }
             .sheet(isPresented: $showingAccountStatusSheet) {
                 AccountStatusSheet(
@@ -295,32 +299,40 @@ struct CashflowCardsView: View {
         } else {
             ScrollView {
                 VStack(spacing: 16) {
-                    WeeklyBudgetCard(
-                        info: weeklyBudgetInfo,
-                        currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
-                        format: formatNumber,
-                        onAccountStatusTap: { showingAccountStatusSheet = true }
-                    )
-                    MonthlyTargetCard(
-                        target: monthlyGoalValue,
-                        actual: vm.monthlyTotals.net,
-                        currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
-                        format: formatNumber,
-                        onEdit: {
-                            monthlyTargetEditingValue = monthlyGoalValue
-                            showingMonthlyTargetSheet = true
-                        },
-                        onPlanAhead: {
-                            showingPlanAheadSheet = true
-                        }
-                    )
-                    MonthlyTrendCard(
-                        labels: vm.monthlyLabels,
-                        netSeries: vm.netSeries,
-                        expenseSeries: vm.expensesSeries,
-                        incomeSeries: vm.incomeSeries,
-                        currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS")
-                    )
+                    if showWeeklyBudgetCard {
+                        WeeklyBudgetCard(
+                            info: weeklyBudgetInfo,
+                            currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
+                            format: formatNumber,
+                            onAccountStatusTap: { showingAccountStatusSheet = true }
+                        )
+                    }
+                    
+                    if showMonthlyTargetCard {
+                        MonthlyTargetCard(
+                            target: monthlyGoalValue,
+                            actual: vm.monthlyTotals.net,
+                            currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS"),
+                            format: formatNumber,
+                            onEdit: {
+                                monthlyTargetEditingValue = monthlyGoalValue
+                                showingMonthlyTargetSheet = true
+                            },
+                            onPlanAhead: {
+                                showingPlanAheadSheet = true
+                            }
+                        )
+                    }
+                    
+                    if showMonthlyTrendCard {
+                        MonthlyTrendCard(
+                            labels: vm.monthlyLabels,
+                            netSeries: vm.netSeries,
+                            expenseSeries: vm.expensesSeries,
+                            incomeSeries: vm.incomeSeries,
+                            currencySymbol: currencySymbol(for: vm.selectedCashFlow?.currency ?? "ILS")
+                        )
+                    }
                     summaryCard
                     ForEach(vm.orderedItems, id: \.id) { item in
                         itemView(for: item)
@@ -400,12 +412,12 @@ struct CashflowCardsView: View {
                 Spacer()
             }
             HStack(alignment: .firstTextBaseline, spacing: 4) {
+                Text("₪").font(.system(size: 20, weight: .medium))
+                    .foregroundColor(totals.net >= 0 ? .green : .red)
                 Text(formatNumber(abs(totals.net)))
                     .font(.system(size: 34, weight: .bold))
                     .foregroundColor(totals.net >= 0 ? .green : .red)
                     .monospacedDigit()
-                Text("₪").font(.system(size: 20, weight: .medium))
-                    .foregroundColor(totals.net >= 0 ? .green : .red)
                 Spacer()
             }
 
@@ -414,8 +426,8 @@ struct CashflowCardsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("סה\"כ הכנסות").font(.footnote).foregroundColor(.secondary)
                     HStack(spacing: 4) {
-                        Text(formatNumber(totals.income)).foregroundColor(.green).monospacedDigit()
                         Text("₪").font(.caption).foregroundColor(.green)
+                        Text(formatNumber(totals.income)).foregroundColor(.green).monospacedDigit()
                     }
 
                 }
@@ -423,8 +435,8 @@ struct CashflowCardsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("סה\"כ הוצאות").font(.footnote).foregroundColor(.secondary)
                     HStack(spacing: 4) {
-                        Text(formatNumber(totals.expenses)).monospacedDigit()
                         Text("₪").font(.caption)
+                        Text(formatNumber(totals.expenses)).monospacedDigit()
                     }
                     .foregroundColor(.primary)
 
@@ -709,13 +721,13 @@ struct CashflowCardsView: View {
 
                     if let info = info {
                         HStack(alignment: .firstTextBaseline, spacing: 4) {
+                            Text("₪")
+                                .font(.title3)
+                                .foregroundColor(info.remaining >= 0 ? Theme.success : Theme.danger)
                             Text(format(abs(info.remaining)))
                                 .font(.system(size: 32, weight: .bold))
                                 .foregroundColor(info.remaining >= 0 ? Theme.success : Theme.danger)
                                 .monospacedDigit()
-                            Text("₪")
-                                .font(.title3)
-                                .foregroundColor(info.remaining >= 0 ? Theme.success : Theme.danger)
                         }
                         Text(info.remaining >= 0 ? "עוד שבוע אחד לפני החריגה" : "חריגה של \(format(abs(info.remaining))) ₪")
                             .font(.subheadline)
@@ -1079,8 +1091,8 @@ struct CashflowCardsView: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(label).font(.caption).foregroundColor(.secondary)
                     HStack(alignment: .firstTextBaseline, spacing: 4) {
-                        Text(format(value)).font(.headline).foregroundColor(color).monospacedDigit()
                         Text(currencySymbol).font(.caption2).foregroundColor(color)
+                        Text(format(value)).font(.headline).foregroundColor(color).monospacedDigit()
                     }
 
                 }

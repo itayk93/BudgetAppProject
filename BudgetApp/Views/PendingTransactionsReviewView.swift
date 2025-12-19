@@ -13,6 +13,13 @@ struct PendingTransactionsReviewView: View {
     @State private var isMovingFlowMonth = false
     @State private var toastMessage: String?
     @State private var splitTransactionTarget: Transaction?
+    
+    // Inline Category Selection
+    @State private var showCategorySelector = false
+    @State private var categorySearchText = ""
+    @State private var selectedCategory: String?
+    @State private var isSavingCategory = false
+
     var onDismiss: () -> Void
 
     private let swipeThreshold: CGFloat = 110
@@ -150,7 +157,7 @@ struct PendingTransactionsReviewView: View {
                     .multilineTextAlignment(.leading)
 
                 // Amount
-                Text("\(currencySymbol(for: transaction.currency)) \(heroAmountText(transaction.absoluteAmount))")
+                Text("\(heroAmountText(transaction.absoluteAmount)) \(currencySymbol(for: transaction.currency))")
                     .font(.system(size: 46, weight: .bold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -211,11 +218,17 @@ struct PendingTransactionsReviewView: View {
 
     private func animateDismissal() {
         withAnimation(.spring(response: 0.35, dampingFraction: 1.0)) {
-            sheetDragOffset = UIScreen.main.bounds.height
+            sheetDragOffset = screenHeight
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
             onDismiss()
         }
+    }
+
+    private var screenHeight: CGFloat {
+        UIApplication.shared.connectedScenes
+            .compactMap { $0 as? UIWindowScene }
+            .first?.screen.bounds.height ?? 0
     }
 
     private func resolvedFlowMonth(for transaction: Transaction) -> String {
@@ -356,6 +369,7 @@ struct PendingTransactionsReviewView: View {
     private func secondaryActions(for transaction: Transaction) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             heroNoteEditor(for: transaction)
+            heroCategoryEditor(for: transaction)
             heroMoveFlowMonthEditor(for: transaction)
             
             // Split Action
@@ -467,6 +481,135 @@ struct PendingTransactionsReviewView: View {
                 )
             }
         }
+    }
+
+
+
+    private func heroCategoryEditor(for transaction: Transaction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    showCategorySelector.toggle()
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "arrowshape.turn.up.right")
+                        .font(.title3)
+                        .foregroundColor(.primary)
+                    Text(showCategorySelector ? "בטל שינוי" : "להזיז את ההוצאה")
+                        .font(.body.weight(.semibold))
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+            }
+            .buttonStyle(.plain)
+            .actionCard()
+
+            if showCategorySelector {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("בחר קטגוריה חדשה")
+                        .font(.subheadline.weight(.semibold))
+
+                    TextField("חפש קטגוריה…", text: $categorySearchText)
+                        .padding(10)
+                        .background(Color(UIColor.systemGray6))
+                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                        .multilineTextAlignment(.trailing)
+
+                    if !categorySearchText.isEmpty {
+                        ForEach(filteredCategories(for: transaction), id: \.self) { category in
+                            Button {
+                                selectCategory(category, for: transaction)
+                            } label: {
+                                HStack {
+                                    Image(systemName: "chevron.left")
+                                        .font(.footnote)
+                                    Text(category)
+                                        .frame(maxWidth: .infinity, alignment: .leading)
+                                    Spacer()
+                                }
+                            }
+                            .buttonStyle(.plain)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .fill(Color.white)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                                    .stroke(
+                                        selectedCategory == category ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.25),
+                                        lineWidth: 1
+                                    )
+                            )
+                            .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
+                        }
+                    }
+
+                    Button {
+                        commitCategoryChange(for: transaction)
+                    } label: {
+                        HStack {
+                           if isSavingCategory {
+                               ProgressView().progressViewStyle(.circular)
+                           }
+                           Text(isSavingCategory ? "שומר..." : "שמור קטגוריה")
+                               .font(.body.weight(.semibold))
+                               .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isSavingCategory)
+                    .actionCard()
+                }
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(Color.white)
+                        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                                .stroke(Color.gray.opacity(0.18), lineWidth: 1)
+                        )
+                )
+            }
+        }
+    }
+    
+    private func selectCategory(_ category: String, for transaction: Transaction) {
+        selectedCategory = category
+        // dismissKeyboard() // Helper if needed
+    }
+
+    private func commitCategoryChange(for transaction: Transaction) {
+        let trimmedSearch = categorySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        let chosen = selectedCategory
+        let newCategory = chosen ?? (!trimmedSearch.isEmpty ? trimmedSearch : transaction.effectiveCategoryName)
+        
+        guard !newCategory.isEmpty else { return }
+        
+        isSavingCategory = true
+        Task {
+            await viewModel.reassign(transaction, to: newCategory, note: nil)
+            await MainActor.run {
+                isSavingCategory = false
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    showCategorySelector = false
+                    categorySearchText = ""
+                    selectedCategory = nil
+                }
+            }
+        }
+    }
+    
+    private func filteredCategories(for transaction: Transaction) -> [String] {
+        let available = prepareAvailableCategories(for: transaction)
+        let search = categorySearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !search.isEmpty else { return available }
+        return available
+            .filter { $0.localizedCaseInsensitiveContains(search) }
+            .sorted { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
     }
 
     private func heroMoveFlowMonthEditor(for transaction: Transaction) -> some View {
@@ -687,7 +830,3 @@ struct PendingTransactionsReviewView: View {
         }
     }
 }
-
-
-
-

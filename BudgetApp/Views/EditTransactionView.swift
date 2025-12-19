@@ -199,7 +199,7 @@ struct EditTransactionView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .multilineTextAlignment(.leading)
 
-                Text("\(currencySymbol(for: transaction.currency)) \(heroAmountText(abs(transaction.normalizedAmount)))")
+                Text("\(heroAmountText(abs(transaction.normalizedAmount))) \(currencySymbol(for: transaction.currency))")
                     .font(.system(size: 46, weight: .bold))
                     .foregroundColor(.white)
                     .frame(maxWidth: .infinity, alignment: .leading)

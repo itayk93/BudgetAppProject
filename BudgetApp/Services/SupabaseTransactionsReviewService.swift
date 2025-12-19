@@ -2,6 +2,14 @@ import Foundation
 
 // TransactionCategory is defined in Models/Transaction.swift - will be available across the target
 
+public struct BusinessCategoryDefault: Decodable {
+    public let id: String
+    public let user_id: String
+    public let business_name: String
+    public let category_name: String
+}
+
+
 struct SupabaseCredentials {
     let restURL: URL
     let apiKey: String
@@ -234,7 +242,9 @@ final class SupabaseTransactionsReviewService {
     func fetchReviewedTransactions(
         for userID: String,
         businessName searchTerm: String?,
-        limit: Int = 1_000_000
+        limit: Int = 1_000_000,
+        flowMonthFrom: String? = nil,
+        flowMonthTo: String? = nil
     ) async throws -> [Transaction] {
         AppLogger.log("🔍 [DEBUG] Fetching reviewed transactions for user_id: \(userID)")
         var query: [URLQueryItem] = [
@@ -244,6 +254,13 @@ final class SupabaseTransactionsReviewService {
             URLQueryItem(name: "order", value: "payment_date.desc"),
             URLQueryItem(name: "limit", value: "\(limit)")
         ]
+
+        if let from = flowMonthFrom {
+            query.append(URLQueryItem(name: "flow_month", value: "gte.\(from)"))
+        }
+        if let to = flowMonthTo {
+            query.append(URLQueryItem(name: "flow_month", value: "lte.\(to)"))
+        }
 
         if let term = searchTerm?.trimmingCharacters(in: .whitespacesAndNewlines), !term.isEmpty {
             let ilike = "ilike.*\(term)*"
@@ -296,14 +313,15 @@ final class SupabaseTransactionsReviewService {
         }
     }
 
-    func markReviewed(transactionID: String, note: String? = nil) async throws {
+    func markReviewed(transactionID: String, categoryName: String? = nil, note: String? = nil) async throws {
         try await update(
             transactionID: transactionID,
-            categoryName: nil,
+            categoryName: categoryName,
             note: note,
             markReviewed: true
         )
     }
+
 
     func updateCategory(transactionID: String, categoryName: String, note: String? = nil) async throws {
         try await update(
@@ -381,6 +399,17 @@ final class SupabaseTransactionsReviewService {
             prefer: "resolution=merge-duplicates"
         )
     }
+
+    func fetchBusinessCategoryDefaults(for userID: String) async throws -> [BusinessCategoryDefault] {
+        let query = [
+            URLQueryItem(name: "user_id", value: "eq.\(userID)"),
+            URLQueryItem(name: "select", value: "*")
+        ]
+        let data = try await request(path: "business_category_defaults", queryItems: query)
+        let defaults = try decoder.decode([BusinessCategoryDefault].self, from: data)
+        return defaults
+    }
+
 
     func hideBusiness(for userID: String, businessName: String, reason: String) async throws {
         let payload = HiddenBusinessPayload(

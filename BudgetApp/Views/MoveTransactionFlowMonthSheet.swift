@@ -83,7 +83,7 @@ struct MoveTransactionFlowMonthSheet: View {
         VStack(alignment: .trailing, spacing: 6) {
             Text(transaction.business_name ?? transaction.payment_method ?? "עסקה")
                 .font(.headline)
-            Text("₪\(formattedAmount(abs(transaction.normalizedAmount)))")
+            Text("\(formattedAmount(abs(transaction.normalizedAmount)))₪")
                 .font(.title3.bold())
                 .foregroundColor(.accentColor)
             Text("חודש תזרים נוכחי: \(currentFlowMonthLabel)")

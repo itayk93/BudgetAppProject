@@ -22,12 +22,12 @@ struct EditTargetView: View {
                 
                 Section("יעד חודשי") {
                     HStack {
+                        Text("₪")
+                            .foregroundColor(.secondary)
                         TextField("סכום", text: $tempValue)
 #if os(iOS)
                             .keyboardType(.decimalPad)
 #endif
-                        Text("₪")
-                            .foregroundColor(.secondary)
                     }
                 }
                 
@@ -36,10 +36,10 @@ struct EditTargetView: View {
                         HStack {
                             Text("ingly suggested")
                             Spacer()
-                            Text(formatNumber(suggestedValue))
-                                .foregroundColor(.blue)
                             Text("₪")
                                 .foregroundColor(.secondary)
+                            Text(formatNumber(suggestedValue))
+                                .foregroundColor(.blue)
                         }
                     }
                 }

@@ -8,6 +8,10 @@
 import SwiftUI
 
 struct SettingsView: View {
+    @AppStorage("dashboard.showWeeklyBudgetCard") private var showWeeklyBudgetCard = true
+    @AppStorage("dashboard.showMonthlyTargetCard") private var showMonthlyTargetCard = true
+    @AppStorage("dashboard.showMonthlyTrendCard") private var showMonthlyTrendCard = true
+
     var body: some View {
         Form {
             NavigationLink("ניהול קטגוריות") {
@@ -15,6 +19,11 @@ struct SettingsView: View {
             }
             NavigationLink("עסקאות שנבחנות מחדש") {
                 ReviewedTransactionsSearchView()
+            }
+            Section("תצוגת דשבורד") {
+                Toggle("כמה נשאר להוציא השבוע", isOn: $showWeeklyBudgetCard)
+                Toggle("היעד החודשי", isOn: $showMonthlyTargetCard)
+                Toggle("מבט חודשי", isOn: $showMonthlyTrendCard)
             }
         }
         .navigationTitle("הגדרות")

@@ -35,7 +35,7 @@ struct SplitTransactionSheet: View {
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(alignment: .trailing, spacing: 20) {
+                VStack(alignment: .leading, spacing: 20) {
                     summarySection
                     splitsList
                     addSplitButton
@@ -44,8 +44,8 @@ struct SplitTransactionSheet: View {
                         Text(errorMessage)
                             .font(.footnote)
                             .foregroundColor(.red)
-                            .multilineTextAlignment(.trailing)
-                            .frame(maxWidth: .infinity, alignment: .trailing)
+                            .multilineTextAlignment(.leading)
+                            .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.top, 4)
                     }
                     checkValidationButton
@@ -81,12 +81,12 @@ struct SplitTransactionSheet: View {
     }
 
     private var summarySection: some View {
-        VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             Text(transaction.business_name ?? "ללא שם")
                 .font(.title3.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .leading)
             HStack(alignment: .firstTextBaseline, spacing: 12) {
-                VStack(alignment: .trailing, spacing: 4) {
+                VStack(alignment: .leading, spacing: 4) {
                     Text("סכום מקורי")
                         .font(.footnote)
                         .foregroundColor(.secondary)
@@ -96,11 +96,11 @@ struct SplitTransactionSheet: View {
                             .foregroundColor(.secondary)
                     }
                 }
-                Text("₪\(formatted(amount: originalAmount))")
+                Text("\(formatted(amount: originalAmount))₪")
                     .font(.title2.bold())
                     .foregroundColor(.accentColor)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding()
         .background(Color.cardBackground)
@@ -117,7 +117,7 @@ struct SplitTransactionSheet: View {
     }
 
     private func splitCard(for entry: Binding<SplitEntryDraft>, index: Int) -> some View {
-        VStack(alignment: .trailing, spacing: 12) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 8) {
                 Text(index == 0 ? "רשומה מקורית" : "פיצול \(index)")
                     .font(.headline)
@@ -129,10 +129,10 @@ struct SplitTransactionSheet: View {
                     }
                 }
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            VStack(alignment: .trailing, spacing: 8) {
-                Text("סכום (₪)")
+            VStack(alignment: .leading, spacing: 8) {
+                Text("(₪) סכום")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 TextField("0.0", text: entry.amountBinding { newValue in
@@ -140,24 +140,25 @@ struct SplitTransactionSheet: View {
                 })
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
+                .environment(\.layoutDirection, .leftToRight)
                 .padding(12)
                 .background(Color(UIColor.systemGray5))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("שם העסק / תיאור")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 TextField("לדוגמה: קניות סופר", text: entry.businessName)
                     .textInputAutocapitalization(.sentences)
-                    .multilineTextAlignment(.trailing)
+                    .multilineTextAlignment(.leading)
                 .padding(12)
                 .background(Color(UIColor.systemGray5))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
 
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("קטגוריה")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -171,7 +172,7 @@ struct SplitTransactionSheet: View {
                 )
             }
 
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("חודש תזרים (yyyy-MM)")
                     .font(.caption)
                     .foregroundColor(.secondary)
@@ -180,6 +181,7 @@ struct SplitTransactionSheet: View {
                     .disableAutocorrection(true)
                     .multilineTextAlignment(.trailing)
                     .keyboardType(.numbersAndPunctuation)
+                    .environment(\.layoutDirection, .leftToRight)
                     .padding(12)
                     .background(Color(UIColor.systemGray5))
                     .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -192,13 +194,13 @@ struct SplitTransactionSheet: View {
                     }
             }
 
-            VStack(alignment: .trailing, spacing: 8) {
+            VStack(alignment: .leading, spacing: 8) {
                 Text("הסבר (אופציונלי)")
                     .font(.caption)
                     .foregroundColor(.secondary)
                 TextField("פרט מה שייך לחלק הזה בפיצול", text: entry.notes, axis: .vertical)
                     .lineLimit(1...3)
-                    .multilineTextAlignment(.trailing)
+                    .multilineTextAlignment(.leading)
                 .padding(12)
                 .background(Color(UIColor.systemGray5))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -222,7 +224,7 @@ struct SplitTransactionSheet: View {
                 Text(entries.count == 1 ? "התחל פיצול" : "הוסף פיצול נוסף")
             }
             .font(.body.weight(.semibold))
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .padding()
             .background(Color.accentColor.opacity(0.15))
             .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
@@ -231,33 +233,33 @@ struct SplitTransactionSheet: View {
     }
 
     private var totalsSummary: some View {
-        VStack(alignment: .trailing, spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 8) {
                 Text("סך פיצולים")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("₪\(formatted(amount: currentSplitTotal))")
+                Text("\(formatted(amount: currentSplitTotal))₪")
                     .font(.body.weight(.semibold))
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
             HStack(spacing: 8) {
                 Text("סכום מקורי")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("₪\(formatted(amount: originalAmount))")
+                Text("\(formatted(amount: originalAmount))₪")
                     .font(.body.weight(.semibold))
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
             let difference = abs(currentSplitTotal - originalAmount)
             HStack(spacing: 8) {
                 Text("הפרש")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                Text("\(difference <= tolerance ? "בתוך הטולרנס" : "₪\(formatted(amount: difference))")")
+                Text("\(difference <= tolerance ? "בתוך הטולרנס" : "\(formatted(amount: difference))₪")")
                     .font(.body.weight(.semibold))
                     .foregroundColor(difference <= tolerance ? .green : .orange)
             }
-            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding()
         .background(Color(UIColor.systemGray5))
@@ -270,7 +272,7 @@ struct SplitTransactionSheet: View {
         } label: {
             Text("בדוק מה חסר")
                 .font(.footnote.weight(.semibold))
-                .frame(maxWidth: .infinity, alignment: .trailing)
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding()
                 .background(Color.blue.opacity(0.14))
                 .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -285,14 +287,6 @@ struct SplitTransactionSheet: View {
                     .frame(maxWidth: .infinity, alignment: .center)
             }
             HStack(spacing: 12) {
-                Button("סגור") {
-                    dismiss()
-                }
-                .frame(maxWidth: .infinity)
-                .padding()
-                .background(Color(UIColor.systemGray5))
-                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-
                 Button {
                     // Add debug logging before submitting
                     print("🔍 [SPLIT DEBUG] Submit button pressed - about to call submitSplit()")
@@ -307,6 +301,14 @@ struct SplitTransactionSheet: View {
                         .clipShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                 }
                 .disabled(isSubmitting)
+
+                Button("סגור") {
+                    dismiss()
+                }
+                .frame(maxWidth: .infinity)
+                .padding()
+                .background(Color(UIColor.systemGray5))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
         }
         .padding()
@@ -629,7 +631,7 @@ private struct CategoryPickerField: View {
                 Image(systemName: "chevron.down")
                     .font(.caption.bold())
                 Text(selectedCategory.isEmpty ? "בחר קטגוריה" : selectedCategory)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                    .frame(maxWidth: .infinity, alignment: .leading)
             }
             .padding()
             .background(Color(UIColor.systemGray5))

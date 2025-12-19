@@ -345,9 +345,9 @@ struct ReviewedTransactionsSearchView: View {
         let value = formatter.string(from: NSNumber(value: abs(transaction.absoluteAmount))) ?? "\(abs(transaction.absoluteAmount))"
         let symbol = currencySymbol(for: transaction.currency)
         if transaction.absoluteAmount < 0 {
-            return "-\(symbol)\(value)"
+            return "-\(value)\(symbol)"
         }
-        return "\(symbol)\(value)"
+        return "\(value)\(symbol)"
     }
 
     private func currencySymbol(for code: String?) -> String {
