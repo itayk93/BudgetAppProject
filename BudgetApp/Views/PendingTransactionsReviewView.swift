@@ -19,6 +19,7 @@ struct PendingTransactionsReviewView: View {
     @State private var categorySearchText = ""
     @State private var selectedCategory: String?
     @State private var isSavingCategory = false
+    @State private var applyToAllFuture = false
 
     var onDismiss: () -> Void
 
@@ -515,93 +516,100 @@ struct PendingTransactionsReviewView: View {
             .buttonStyle(.plain)
             .actionCard()
 
+            .actionCard()
+
             if showCategorySelector {
-                VStack(alignment: .leading, spacing: 10) {
-                    Text("בחר קטגוריה חדשה")
-                        .font(.subheadline.weight(.semibold))
-
-                    TextField("חפש קטגוריה…", text: $categorySearchText)
-                        .padding(10)
-                        .background(Color(UIColor.systemGray6))
-                        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-                        .multilineTextAlignment(.trailing)
-
-                    if !categorySearchText.isEmpty {
-                        ForEach(filteredCategories(for: transaction), id: \.self) { category in
-                            Button {
-                                selectCategory(category, for: transaction)
-                            } label: {
-                                HStack {
-                                    Image(systemName: "chevron.left")
-                                        .font(.footnote)
-                                    Text(category)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                    Spacer()
-                                }
-                            }
-                            .buttonStyle(.plain)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 10)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .fill(Color.white)
-                            )
-                            .overlay(
-                                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                                    .stroke(
-                                        selectedCategory == category ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.25),
-                                        lineWidth: 1
-                                    )
-                            )
-                            .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
-                        }
-                    }
-
-                    // Toggle for future transactions
-                    Button {
-                        withAnimation { applyToAllFuture.toggle() }
-                    } label: {
-                        HStack(spacing: 12) {
-                            Image(systemName: applyToAllFuture ? "checkmark.square.fill" : "square")
-                                .font(.title3)
-                                .foregroundColor(applyToAllFuture ? .accentColor : .secondary)
-                            Text("החל על כל העסקאות העתידיות")
-                                .font(.footnote)
-                                .foregroundColor(.primary)
-                            Spacer()
-                        }
-                        .padding(.vertical, 4)
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Button {
-                        commitCategoryChange(for: transaction)
-                    } label: {
-                        HStack {
-                           if isSavingCategory {
-                               ProgressView().progressViewStyle(.circular)
-                           }
-                           Text(isSavingCategory ? "שומר..." : "שמור קטגוריה")
-                               .font(.body.weight(.semibold))
-                               .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isSavingCategory)
-                    .actionCard()
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 16, style: .continuous)
-                        .fill(Color.white)
-                        .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 16, style: .continuous)
-                                .stroke(Color.gray.opacity(0.18), lineWidth: 1)
-                        )
-                )
+                categorySelectionContent(for: transaction)
             }
         }
+    }
+
+    @ViewBuilder
+    private func categorySelectionContent(for transaction: Transaction) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            Text("בחר קטגוריה חדשה")
+                .font(.subheadline.weight(.semibold))
+
+            TextField("חפש קטגוריה…", text: $categorySearchText)
+                .padding(10)
+                .background(Color(UIColor.systemGray6))
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .multilineTextAlignment(.trailing)
+
+            if !categorySearchText.isEmpty {
+                ForEach(filteredCategories(for: transaction), id: \.self) { category in
+                    Button {
+                        selectCategory(category, for: transaction)
+                    } label: {
+                        HStack {
+                            Image(systemName: "chevron.left")
+                                .font(.footnote)
+                            Text(category)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            Spacer()
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                    .background(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(Color.white)
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .stroke(
+                                selectedCategory == category ? Color.accentColor.opacity(0.6) : Color.gray.opacity(0.25),
+                                lineWidth: 1
+                            )
+                    )
+                    .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
+                }
+            }
+
+            // Toggle for future transactions
+            Button {
+                withAnimation { applyToAllFuture.toggle() }
+            } label: {
+                HStack(spacing: 12) {
+                    Image(systemName: applyToAllFuture ? "checkmark.square.fill" : "square")
+                        .font(.title3)
+                        .foregroundColor(applyToAllFuture ? .accentColor : .secondary)
+                    Text("החל על כל העסקאות העתידיות")
+                        .font(.footnote)
+                        .foregroundColor(.primary)
+                    Spacer()
+                }
+                .padding(.vertical, 4)
+            }
+            .buttonStyle(.plain)
+            
+            Button {
+                commitCategoryChange(for: transaction)
+            } label: {
+                HStack {
+                   if isSavingCategory {
+                       ProgressView().progressViewStyle(.circular)
+                   }
+                   Text(isSavingCategory ? "שומר..." : "שמור קטגוריה")
+                       .font(.body.weight(.semibold))
+                       .frame(maxWidth: .infinity)
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(isSavingCategory)
+            .actionCard()
+        }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .fill(Color.white)
+                .shadow(color: Color.black.opacity(0.03), radius: 8, x: 0, y: 2)
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .stroke(Color.gray.opacity(0.18), lineWidth: 1)
+                )
+        )
     }
     
     private func selectCategory(_ category: String, for transaction: Transaction) {
