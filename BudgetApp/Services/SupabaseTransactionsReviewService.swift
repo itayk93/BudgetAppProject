@@ -344,8 +344,7 @@ final class SupabaseTransactionsReviewService {
             is_income: transaction.isIncome,
             payment_method: transaction.payment_method,
             flow_month: transaction.flow_month,
-            payment_method: transaction.payment_method,
-            flow_month: transaction.flow_month,
+
             created_at: isoFormatter.string(from: Date()),
             source_type: transaction.source_type ?? "manual_approval",
             reviewed_at: isoFormatter.string(from: Date()),
