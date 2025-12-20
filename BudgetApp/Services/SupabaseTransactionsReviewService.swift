@@ -341,7 +341,6 @@ final class SupabaseTransactionsReviewService {
             category_name: finalCategory,
             notes: finalNote,
             status: "reviewed",
-            is_income: transaction.isIncome,
             payment_method: transaction.payment_method,
             flow_month: transaction.flow_month,
 
@@ -727,7 +726,6 @@ private struct TransactionInsertPayload: Encodable {
     let category_name: String?
     let notes: String?
     let status: String
-    let is_income: Bool
     let payment_method: String?
     let flow_month: String?
     let created_at: String
@@ -745,7 +743,6 @@ private struct TransactionInsertPayload: Encodable {
         case category_name
         case notes
         case status
-        case is_income = "is_income"
         case payment_method
         case flow_month
         case created_at
