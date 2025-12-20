@@ -645,6 +645,31 @@ final class CashFlowDashboardViewModel: ObservableObject {
         rebuildAfterLocalChange()
     }
 
+    func saveDefaultCategory(transaction: Transaction, categoryName: String) async {
+        guard let businessNameRaw = transaction.business_name?.trimmingCharacters(in: .whitespacesAndNewlines), !businessNameRaw.isEmpty else {
+            errorMessage = "אין שם בית עסק לעסקה זו, לא ניתן לשמור קטגוריה קבועה."
+            return
+        }
+        guard let userID = KeychainStore.get("user.id")?.trimmingCharacters(in: .whitespacesAndNewlines), !userID.isEmpty else {
+             errorMessage = "לא נמצא user.id. התחבר מחדש כדי לשמור קטגוריות עתידיות."
+             return
+        }
+        
+        // Use the existing service which has the logic for this
+        guard let service = SupabaseTransactionsReviewService() else {
+             errorMessage = "שגיאה באתחול שירות Supabase"
+             return
+        }
+
+        do {
+            try await service.saveDefaultCategory(for: userID, businessName: businessNameRaw, categoryName: categoryName)
+            print("✅ [DEFAULT] Saved default category '\(categoryName)' for business '\(businessNameRaw)'")
+        } catch {
+            print("❌ [DEFAULT] Failed to save default category: \(error)")
+            errorMessage = "שגיאה בשמירת קטגוריה כברירת מחדל: \(error.localizedDescription)"
+        }
+    }
+
     func updateTransaction(
         _ transaction: Transaction,
         categoryName: String?,

@@ -20,6 +20,7 @@ struct PendingTransactionsReviewView: View {
     @State private var selectedCategory: String?
     @State private var isSavingCategory = false
     @State private var applyToAllFuture = false
+    @State private var autoSaveTask: Task<Void, Never>?
 
     var onDismiss: () -> Void
 
@@ -138,7 +139,7 @@ struct PendingTransactionsReviewView: View {
                 .padding(.top, 16)
                 .background(Color.white)
         }
-        .dismissKeyboardOnTap()
+        // .dismissKeyboardOnTap() // Removed to fix button tap conflict
         .background(Color.white.opacity(0.98))
         .clipShape(TopRoundedSheetShape(radius: 32))
         .shadow(color: Color.black.opacity(0.06), radius: 10, x: 0, y: 0)
@@ -335,7 +336,8 @@ struct PendingTransactionsReviewView: View {
              // Approve Button (Primary style - filled) - NOW FIRST (Right in RTL)
              Button {
                  guard !isProcessing else { return }
-                 Task { await viewModel.approve(transaction) }
+                 let noteToSave = heroNoteText.isEmpty ? nil : heroNoteText
+                 Task { await viewModel.approve(transaction, note: noteToSave) }
              } label: {
                  HStack {
                      Text("להמשיך")
@@ -457,6 +459,21 @@ struct PendingTransactionsReviewView: View {
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .multilineTextAlignment(.leading)
+                        .onChange(of: heroNoteText) { oldValue, newValue in
+                            autoSaveTask?.cancel()
+                            autoSaveTask = Task {
+                                try? await Task.sleep(nanoseconds: 800_000_000) // 0.8s debounce
+                                if !Task.isCancelled {
+                                    // Skip save if the text matches what's already in the transaction (to avoid save on load)
+                                    // But be careful about trimmed vs raw.
+                                    // Simple check:
+                                    let currentNote = transaction.notes ?? ""
+                                    if newValue.trimmingCharacters(in: .whitespacesAndNewlines) != currentNote.trimmingCharacters(in: .whitespacesAndNewlines) {
+                                         _ = await viewModel.saveNote(newValue, for: transaction.id, silent: true)
+                                    }
+                                }
+                            }
+                        }
 
                     Button {
                         Task { @MainActor in

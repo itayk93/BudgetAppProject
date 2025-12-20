@@ -173,25 +173,11 @@ struct SplitTransactionSheet: View {
             }
 
             VStack(alignment: .leading, spacing: 8) {
-                Text("חודש תזרים (yyyy-MM)")
+                Text("חודש תזרים")
                     .font(.caption)
                     .foregroundColor(.secondary)
-                TextField("2025-09", text: entry.flowMonth)
-                    .textInputAutocapitalization(.never)
-                    .disableAutocorrection(true)
-                    .multilineTextAlignment(.trailing)
-                    .keyboardType(.numbersAndPunctuation)
-                    .environment(\.layoutDirection, .leftToRight)
-                    .padding(12)
-                    .background(Color(UIColor.systemGray5))
-                    .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-                    .font(.body.monospacedDigit())
-                    .onChange(of: entry.flowMonth.wrappedValue) {
-                        let sanitized = FlowMonthInputValidator.sanitizeFlowMonthInput(entry.flowMonth.wrappedValue)
-                        if sanitized != entry.flowMonth.wrappedValue {
-                            entry.flowMonth.wrappedValue = sanitized
-                        }
-                    }
+                
+                FlowMonthSelector(flowMonth: entry.flowMonth)
             }
 
             VStack(alignment: .leading, spacing: 8) {
@@ -639,6 +625,104 @@ private struct CategoryPickerField: View {
             .foregroundColor(.primary)
         }
         .disabled(isLoading || availableCategories.isEmpty)
+    }
+}
+
+// MARK: - Flow Month Selector Component
+
+private struct FlowMonthSelector: View {
+    @Binding var flowMonth: String
+    @State private var internalDate: Date
+    @State private var isExpanded = false
+    
+    init(flowMonth: Binding<String>) {
+        _flowMonth = flowMonth
+        
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        
+        if let date = formatter.date(from: flowMonth.wrappedValue) {
+            _internalDate = State(initialValue: date)
+        } else {
+            _internalDate = State(initialValue: Date())
+        }
+    }
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            Button {
+                withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                    isExpanded.toggle()
+                }
+            } label: {
+                HStack {
+                    Image(systemName: "calendar")
+                        .foregroundColor(.accentColor)
+                    
+                    Text(formattedDisplay(flowMonth))
+                        .font(.body.monospacedDigit())
+                        .foregroundColor(.primary)
+                    
+                    Spacer()
+                    
+                    if !flowMonth.isEmpty {
+                        Text(flowMonth)
+                            .font(.caption.monospacedDigit())
+                            .foregroundColor(.secondary)
+                    }
+                    
+                    Image(systemName: "chevron.right")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                }
+                .padding(12)
+                .background(Color(UIColor.systemGray5))
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+            }
+            .buttonStyle(.plain)
+            
+            if isExpanded {
+                VStack {
+                    DatePicker(
+                        "",
+                        selection: $internalDate,
+                        displayedComponents: [.date]
+                    )
+                    .datePickerStyle(.wheel)
+                    .labelsHidden()
+                    .environment(\.locale, Locale(identifier: "he_IL"))
+                    .onChange(of: internalDate) { _, newDate in
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "yyyy-MM"
+                        formatter.locale = Locale(identifier: "en_US_POSIX")
+                        flowMonth = formatter.string(from: newDate)
+                    }
+                    
+                    Button("סגור") {
+                        withAnimation { isExpanded = false }
+                    }
+                    .font(.footnote.weight(.medium))
+                    .padding(.top, 4)
+                }
+                .padding(.vertical, 8)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+    }
+    
+    private func formattedDisplay(_ raw: String) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        
+        guard let date = formatter.date(from: raw) else { return raw }
+        
+        let display = DateFormatter()
+        display.locale = Locale(identifier: "he_IL")
+        display.dateFormat = "MMMM yyyy"
+        return display.string(from: date)
     }
 }
 

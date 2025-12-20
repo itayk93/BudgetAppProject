@@ -313,15 +313,54 @@ final class SupabaseTransactionsReviewService {
         }
     }
 
-    func markReviewed(transactionID: String, categoryName: String? = nil, note: String? = nil) async throws {
+    func markReviewed(transaction: Transaction, categoryName: String? = nil, note: String? = nil) async throws {
+        // 1. Insert into 'transactions' table (Client-side fix for broken trigger)
+        try await insertToTransactions(transaction: transaction, categoryName: categoryName, note: note)
+        
+        // 2. Mark as reviewed in 'bank_scraper_pending_transactions' (or delete, depending on logic, but typically we mark reviewed)
+        // logic moved from old markReviewed:
         try await update(
-            transactionID: transactionID,
+            transactionID: transaction.id,
             categoryName: categoryName,
             note: note,
             markReviewed: true
         )
     }
 
+    private func insertToTransactions(transaction: Transaction, categoryName: String?, note: String?) async throws {
+        let finalCategory = categoryName ?? transaction.effectiveCategoryName
+        let finalNote = note ?? transaction.notes
+        
+        let payload = TransactionInsertPayload(
+            user_id: transaction.user_id,
+            business_name: transaction.business_name,
+            amount: transaction.absoluteAmount,
+            currency: transaction.currency,
+            date: transaction.date,
+            payment_date: transaction.payment_date,
+            category_name: finalCategory,
+            notes: finalNote,
+            status: "reviewed",
+            is_income: transaction.isIncome,
+            payment_method: transaction.payment_method,
+            flow_month: transaction.flow_month,
+            created_at: isoFormatter.string(from: Date()),
+            source_type: transaction.source_type ?? "manual_approval",
+            reviewed_at: isoFormatter.string(from: Date())
+        )
+        
+        let encoder = JSONEncoder()
+        let body = try encoder.encode(payload)
+        
+        AppLogger.log("📤 [INSERT] Inserting approved transaction to 'transactions' table: \(transaction.business_name ?? "Unknown")")
+        
+        _ = try await request(
+            path: "transactions",
+            method: "POST",
+            body: body,
+            prefer: "return=minimal"
+        )
+    }
 
     func updateCategory(transactionID: String, categoryName: String, note: String? = nil) async throws {
         try await update(
@@ -331,6 +370,7 @@ final class SupabaseTransactionsReviewService {
             markReviewed: false
         )
     }
+
 
     func updateFlowMonth(transactionID: String, flowMonth: String) async throws {
         let trimmed = flowMonth.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -672,5 +712,41 @@ private struct TransactionFlagUpdatePayload: Encodable {
         if let reviewed_at {
             try container.encode(reviewed_at, forKey: .reviewed_at)
         }
+    }
+}
+
+private struct TransactionInsertPayload: Encodable {
+    let user_id: String?
+    let business_name: String?
+    let amount: Double
+    let currency: String?
+    let date: String?
+    let payment_date: String?
+    let category_name: String?
+    let notes: String?
+    let status: String
+    let is_income: Bool
+    let payment_method: String?
+    let flow_month: String?
+    let created_at: String
+    let source_type: String
+    let reviewed_at: String
+
+    enum CodingKeys: String, CodingKey {
+        case user_id
+        case business_name
+        case amount
+        case currency
+        case date
+        case payment_date
+        case category_name
+        case notes
+        case status
+        case is_income = "is_income"
+        case payment_method
+        case flow_month
+        case created_at
+        case source_type
+        case reviewed_at
     }
 }

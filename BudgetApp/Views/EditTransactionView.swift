@@ -23,6 +23,7 @@ struct EditTransactionView: View {
     @State private var showCategorySelector = false
     @State private var categorySearchText = ""
     @State private var selectedCategory: String?
+    @State private var applyToFuture = false
     @State private var showSplitTransaction = false
     @State private var moveFlowMonthExpanded = false
     @State private var moveFlowMonthDate = Date()
@@ -75,9 +76,6 @@ struct EditTransactionView: View {
                     .frame(maxWidth: .infinity, alignment: .bottom)
                     .frame(maxHeight: min(proxy.size.height * 0.9, contentHeight), alignment: .bottom)
                     .contentShape(Rectangle())
-                    .onTapGesture {
-                        dismissKeyboard()
-                    }
             }
         }
         .toolbar(.hidden, for: .navigationBar)
@@ -123,15 +121,15 @@ struct EditTransactionView: View {
     // MARK: - Layout
 
     private var bottomSheet: some View {
-        VStack(spacing: 0) {
-            heroSection
-                .background(
-                    GeometryReader { geo in
-                        Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
-                    }
-                )
+        ScrollView(showsIndicators: false) {
+            VStack(spacing: 0) {
+                heroSection
+                    .background(
+                        GeometryReader { geo in
+                            Color.clear.preference(key: ContentHeightKey.self, value: geo.size.height)
+                        }
+                    )
 
-            ScrollView(showsIndicators: false) {
                 actionsSection
                     .padding(.bottom, 60)
                     .background(
@@ -140,8 +138,9 @@ struct EditTransactionView: View {
                         }
                     )
             }
-            .scrollDismissesKeyboard(.interactively)
         }
+        .scrollDismissesKeyboard(.interactively)
+        .dismissKeyboardOnTap()
         .onPreferenceChange(ContentHeightKey.self) { newHeight in
             withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
                 contentHeight = newHeight
@@ -267,8 +266,14 @@ struct EditTransactionView: View {
         let trimmedFlowMonth = flowMonth.trimmingCharacters(in: .whitespacesAndNewlines)
         let flowMonthPayload = trimmedFlowMonth.isEmpty ? nil : trimmedFlowMonth
 
+        let shouldSaveDefault = applyToFuture
+        
         Task { @MainActor in
             do {
+                if shouldSaveDefault {
+                    await vm.saveDefaultCategory(transaction: transaction, categoryName: trimmedCategory)
+                }
+                
                 let updatedTransaction = try await vm.updateTransaction(
                     transaction,
                     categoryName: trimmedCategory,
@@ -278,6 +283,7 @@ struct EditTransactionView: View {
                 categoryName = trimmedCategory
                 flowMonth = trimmedFlowMonth
                 isSaving = false
+                applyToFuture = false
                 onSave(updatedTransaction)
             } catch {
                 isSaving = false
@@ -462,6 +468,24 @@ struct EditTransactionView: View {
                             .shadow(color: Color.black.opacity(0.04), radius: 6, x: 0, y: 3)
                         }
                     }
+
+                    // Future transactions toggle
+                    Button {
+                        withAnimation { applyToFuture.toggle() }
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: applyToFuture ? "checkmark.square.fill" : "square")
+                                .font(.title3)
+                                .foregroundColor(applyToFuture ? .accentColor : .secondary)
+                            Text("החל על כל העסקאות העתידיות")
+                                .font(.footnote)
+                                .foregroundColor(.primary)
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                        .padding(.horizontal, 4)
+                    }
+                    .buttonStyle(.plain)
 
                     Button {
                         commitCategoryChange()

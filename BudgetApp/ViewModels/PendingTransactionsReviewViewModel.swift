@@ -67,12 +67,13 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         loading = false
     }
 
-    func approve(_ transaction: Transaction) async {
+    func approve(_ transaction: Transaction, note: String? = nil) async {
         guard let service = service else { return }
         processingTransactionID = transaction.id
         let index = removeTransaction(transaction)
         do {
-            try await service.markReviewed(transactionID: transaction.id, categoryName: transaction.effectiveCategoryName)
+        do {
+            try await service.markReviewed(transaction: transaction, categoryName: transaction.effectiveCategoryName, note: note)
             actionMessage = "אישרת את \(transaction.business_name ?? "העסקה")"
         } catch {
             restore(transaction, at: index)
@@ -262,15 +263,29 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         processingTransactionID = nil
     }
 
-    func saveNote(_ text: String, for transactionID: String) async -> Bool {
+    func saveNote(_ text: String, for transactionID: String, silent: Bool = false) async -> Bool {
         guard service != nil else { return false }
 
         let copied = String(text) // force a new backing buffer
         let trimmed = copied.trimmingCharacters(in: .whitespacesAndNewlines)
         let sanitizedNote: String? = trimmed.isEmpty ? nil : trimmed
 
-        processingTransactionID = transactionID
-        defer { processingTransactionID = nil }
+        // IF NOT silent, we show spinner. If silent, we leave processingTransactionID alone 
+        // OR we can still set it but we must ensure we don't block the UI too much. 
+        // Actually, if we set processingTransactionID, the UI disables the text editor! 
+        // So for auto-save (silent), we should PROBABLY NOT set processingTransactionID 
+        // or we should have a separate loading state for "saving note".
+        // For now, let's just NOT set processingTransactionID if silent, 
+        // as typing should not be blocked by background saving.
+        if !silent {
+             processingTransactionID = transactionID
+        }
+        
+        defer { 
+            if !silent {
+                processingTransactionID = nil 
+            }
+        }
 
         do {
             try await PendingTransactionNotesService.updateNoteAsync(
@@ -284,11 +299,15 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
                 transactions[index] = current
             }
 
-            actionMessage = sanitizedNote == nil ? "הערה הוסרה" : "הערה נשמרה"
+            if !silent {
+                actionMessage = sanitizedNote == nil ? "הערה הוסרה" : "הערה נשמרה"
+            }
             return true
         } catch {
-            errorMessage = error.localizedDescription
-            actionMessage = "שגיאה בשמירת ההערה"
+            if !silent {
+                errorMessage = error.localizedDescription
+                actionMessage = "שגיאה בשמירת ההערה"
+            }
             return false
         }
     }
