@@ -162,6 +162,7 @@ final class SupabaseTransactionsReviewService {
             URLQueryItem(name: "select", value: "*"),
             URLQueryItem(name: "user_id", value: "eq.\(userID)"),
             URLQueryItem(name: "status", value: "eq.pending"),
+            URLQueryItem(name: "reviewed_at", value: "is.null"),
             URLQueryItem(name: "created_at", value: "gte.\(cutoffDateString)"), // Filter for last week at database level
             URLQueryItem(name: "order", value: "created_at.desc"),
             URLQueryItem(name: "limit", value: "200")

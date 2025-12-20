@@ -2,7 +2,7 @@ import SwiftUI
 import UIKit
 
 struct PendingTransactionsReviewView: View {
-    @StateObject private var viewModel = PendingTransactionsReviewViewModel()
+    @EnvironmentObject var viewModel: PendingTransactionsReviewViewModel
     @State private var sheetDragOffset: CGFloat = 0
     @State private var pendingCategoryChange: Transaction?
     @State private var heroNoteExpanded = false

@@ -43,7 +43,10 @@ final class CashFlowDashboardViewModel: ObservableObject {
         var id: String { name }
         let name: String
         let target: Double?
-        let isTargetSuggested: Bool // New property
+        let isTargetSuggested: Bool
+        let sharedCategory: String?
+        let useSharedTarget: Bool
+        let isIncome: Bool          // New
         let totalSpent: Double
         let weeksInMonth: Int
         let weekly: [Int: Double]          // week -> spent
@@ -62,6 +65,9 @@ final class CashFlowDashboardViewModel: ObservableObject {
             return lhs.name == rhs.name &&
                    lhs.target == rhs.target &&
                    lhs.isTargetSuggested == rhs.isTargetSuggested &&
+                   lhs.sharedCategory == rhs.sharedCategory &&
+                   lhs.useSharedTarget == rhs.useSharedTarget &&
+                   lhs.isIncome == rhs.isIncome &&
                    lhs.totalSpent == rhs.totalSpent &&
                    lhs.weeksInMonth == rhs.weeksInMonth &&
                    lhs.weekly == rhs.weekly &&
@@ -75,17 +81,17 @@ final class CashFlowDashboardViewModel: ObservableObject {
             hasher.combine(name)
             hasher.combine(target)
             hasher.combine(isTargetSuggested)
+            hasher.combine(sharedCategory)
+            hasher.combine(useSharedTarget)
+            hasher.combine(isIncome)
             hasher.combine(totalSpent)
             hasher.combine(weeksInMonth)
             hasher.combine(weeklyExpected)
             hasher.combine(weeklyDisplay)
-            // For the transactions array, we'll hash the count and a few key properties
-            // to avoid excessive computation
             hasher.combine(transactions.count)
             if !transactions.isEmpty {
                 hasher.combine(transactions[0].id)
             }
-            // Hash weekly transactions roughly
             hasher.combine(weeklyTransactions.keys.sorted())
         }
     }
@@ -233,6 +239,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
     private var categoryOrderService: CategoryOrderService
     private var monthlyGoalsService: MonthlyGoalsService
     private var emptyCategoriesService: EmptyCategoriesService
+    private var categoriesTargetsService: CategoriesTargetsService // New service
 
     /// name -> config (display order, shared mapping, weekly flag, etc.)
     private var categoryOrderMap: [String: CategoryOrder] = [:]
@@ -270,6 +277,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
         self.categoryOrderService = CategoryOrderService(apiClient: apiClient)
         self.monthlyGoalsService = MonthlyGoalsService(apiClient: apiClient)
         self.emptyCategoriesService = EmptyCategoriesService(apiClient: apiClient)
+        self.categoriesTargetsService = CategoriesTargetsService(baseURL: apiClient.baseURL)
     }
 
     // MARK: - Public API
@@ -497,75 +505,28 @@ final class CashFlowDashboardViewModel: ObservableObject {
     }
 
     func updateTarget(for categoryName: String, newTarget: Double) async {
-        // Update the category order map with the new target
-        if let existingCategoryOrder = categoryOrderMap[categoryName] {
-            let updatedCategoryOrder = CategoryOrder(
-                id: existingCategoryOrder.id, // Pass existing ID
-                categoryName: existingCategoryOrder.categoryName,
-                displayOrder: existingCategoryOrder.displayOrder,
-                weeklyDisplay: existingCategoryOrder.weeklyDisplay,
-                monthlyTarget: String(newTarget), // Convert Double to String
-                sharedCategory: existingCategoryOrder.sharedCategory,
-                useSharedTarget: existingCategoryOrder.useSharedTarget
-            )
-            categoryOrderMap[categoryName] = updatedCategoryOrder
-        } else {
-            // Create a new category order if it doesn't exist
-            let newCategoryOrder = CategoryOrder(
-                id: nil, // New category, no ID yet
-                categoryName: categoryName,
-                displayOrder: nil,
-                weeklyDisplay: nil,
-                monthlyTarget: String(newTarget), // Convert Double to String
-                sharedCategory: nil,
-                useSharedTarget: nil
-            )
-            categoryOrderMap[categoryName] = newCategoryOrder
+        do {
+            try await categoriesTargetsService.updateMonthlyTarget(categoryName: categoryName, target: newTarget)
+            print("✅ [TARGET] Updated target for '\(categoryName)' to \(newTarget)")
+            await refreshData()
+        } catch {
+            print("❌ [TARGET] Failed to update target: \(error)")
+            // Fallback: Update locally if API fails? Or better to show error.
+            // For now, consistent with existing behavior, we might want to just log.
+            // But let's keep the local update as temporary fallback so UI feels responsive?
+            // No, user requested "updateTarget(for:) ... perform network calls", so we rely on backend.
+            errorMessage = "עדכון היעד נכשל: \(error.localizedDescription)"
         }
-
-        // Refresh the view to reflect the updated target
-        await refreshData()
     }
 
     func suggestTarget(for categoryName: String) async -> Double {
-        // Calculate a suggested target based on historical spending
-        // This is a simple algorithm that suggests the average monthly spending over the past 3 months
-
-        let calendar = Calendar.current
-        let currentDate = Date()
-
-        // Get transactions from the last 3 months
-        var monthDates: [Date] = []
-        for i in 0..<3 {
-            if let monthDate = calendar.date(byAdding: .month, value: -i, to: currentDate) {
-                monthDates.append(monthDate)
-            }
+        do {
+            let suggestion = try await categoriesTargetsService.calculateMonthlyTarget(categoryName: categoryName)
+            return suggestion
+        } catch {
+            print("❌ [SUGGEST] Failed to get suggestion: \(error)")
+            return 0
         }
-
-        var totalSpent: Double = 0
-        var monthCount = 0
-
-        for monthDate in monthDates {
-            // Get transactions for this specific month
-            let monthTransactions = transactions.filter { transaction in
-                guard let transactionDate = transaction.parsedDate else { return false }
-                return calendar.isDate(transactionDate, equalTo: monthDate, toGranularity: .month) &&
-                       transaction.effectiveCategoryName == categoryName &&
-                       transaction.normalizedAmount < 0 // Only expenses
-            }
-
-            let monthTotal = monthTransactions.reduce(0) { sum, transaction in
-                sum + abs(transaction.normalizedAmount)
-            }
-
-            if monthTotal > 0 {
-                totalSpent += monthCount > 0 ? monthTotal / Double(monthCount) : 0
-                monthCount += 1
-            }
-        }
-
-        let suggestedTarget = monthCount > 0 ? totalSpent / Double(monthCount) : 0
-        return suggestedTarget
     }
 
     func updateMonthlyTargetGoal(to amount: Double) async {
@@ -904,6 +865,9 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 name: name,
                 target: target,
                 isTargetSuggested: isSuggested,
+                sharedCategory: cfg?.sharedCategory,
+                useSharedTarget: cfg?.useSharedTarget ?? false,
+                isIncome: isIncome, // New
                 totalSpent: sum, // Will be totalEarned for income
                 weeksInMonth: weeksInMonth,
                 weekly: weekly,
@@ -911,7 +875,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 weeklyDisplay: isWeeklyCategory,
                 transactions: txs.sorted { ($0.parsedDate ?? .distantPast) < ($1.parsedDate ?? .distantPast) },
                 weeklyTransactions: weeklyTransactions.mapValues {
-                    $0.sorted { ($0.parsedDate ?? .distantPast) > ($1.parsedDate ?? .distantPast) }
+                    $0.sorted { ($0.parsedDate ?? .distantPast) < ($1.parsedDate ?? .distantPast) }
                 }
             ))
         }
@@ -934,6 +898,9 @@ final class CashFlowDashboardViewModel: ObservableObject {
                             name: emptyCat.categoryName,
                             target: targetVal,
                             isTargetSuggested: false,
+                            sharedCategory: cfg.sharedCategory,
+                            useSharedTarget: cfg.useSharedTarget ?? false,
+                            isIncome: isIncome, // New
                             totalSpent: 0,
                             weeksInMonth: weeksInMonth,
                             weekly: [:],
@@ -1084,10 +1051,117 @@ final class CashFlowDashboardViewModel: ObservableObject {
         allCategorizedSummaries.append(contentsOf: savingsSummaries)
         allCategorizedSummaries.append(contentsOf: nonCashflowSummaries)
 
+        // Deduplicate summaries by merging those with the same name
+        let groupedSummaries = Dictionary(grouping: allCategorizedSummaries) { $0.name }
+        var uniqueSummaries: [CategorySummary] = []
+        
+        for (name, duplicates) in groupedSummaries {
+            if duplicates.count == 1 {
+                uniqueSummaries.append(duplicates[0])
+            } else {
+                // Merge logic
+                let combinedTxs = duplicates.flatMap { $0.transactions }.sorted { ($0.parsedDate ?? .distantPast) < ($1.parsedDate ?? .distantPast) }
+                
+                // Recalculate totals
+                // "Income" summaries have totalSpent = sum(max(0, amount))
+                // "Expense" summaries have totalSpent = sum(abs(min(0, amount)))
+                // We want the NET value relative to the category type usually inferred.
+                // But `CategorySummary` is generic.
+                // Let's calculate the raw net flow for this category.
+                
+                let rawNet = combinedTxs.reduce(0) { total, tx in
+                     // Income is positive, Expense is negative in normalizedAmount
+                     return total + tx.normalizedAmount
+                }
+                
+                // If the merged result is positive (net income), we treat it like income (totalSpent > 0 representing e.g. 50 received)
+                // If negative (net expense), we treat it like expense (totalSpent > 0 representing e.g. 50 spent)
+                // Essentially totalSpent should be abs(rawNet).
+                let mergedTotalSpent = abs(rawNet)
+                
+                // Recalculate weekly breakdown
+                let calendar = Calendar.current
+                var mergedWeekly: [Int: Double] = [:]
+                var mergedWeeklyTxs: [Int: [Transaction]] = [:]
+                
+                let monthStart = calendar.date(from: calendar.dateComponents([.year, .month], from: currentMonthDate)) ?? currentMonthDate
+                let lastDayOfMonth = calendar.date(byAdding: DateComponents(month: 1, day: -1), to: monthStart) ?? currentMonthDate
+                let weeksInMonth = Self.numberOfWeeks(in: currentMonthDate, calendar: calendar)
+
+                // We need to know if this category has 'Weekly Display' enabled.
+                // Take from the first duplicate that has it true, or default to false.
+                let isWeeklyDisplay = duplicates.contains { $0.weeklyDisplay }
+                let anyCfg = categoryOrderMap[name]
+                
+                // Determine target - check if any have a target
+                let mergedTarget = duplicates.compactMap { $0.target }.first
+                let isTargetSuggested = duplicates.contains { $0.isTargetSuggested }
+                
+                for t in combinedTxs {
+                    let parsed = t.parsedDate
+                    let w: Int
+                    if isWeeklyDisplay, let d = parsed, !calendar.isDate(d, equalTo: currentMonthDate, toGranularity: .month) {
+                         w = d < monthStart ? 1 : weeksInMonth
+                    } else {
+                        let ref = parsed ?? lastDayOfMonth
+                        w = calendar.component(.weekOfMonth, from: ref)
+                    }
+                    
+                    // Add contribution to that week
+                    // To be consistent with totalSpent = abs(net), weekly should probably track the net flow in that week?
+                    // Or should it track the "Spending" in that week?
+                    // Existing logic:
+                    //   Income:   weekly += max(0, t)
+                    //   Expense:  weekly += abs(min(0, t))
+                    // If we have mixed, we probably want the net impact per week.
+                    // But if we just sum raw amounts, we get net (positive or negative).
+                    // `CategorySummary.weekly` is values of "spent" usually.
+                    // Let's stick to accumulating the raw value and then abs() it?
+                    // No, `weekly` is [Int: Double] where Double is usually displayed as a bar height.
+                    // If we have refund in w1 (+50) and expense in w1 (-100), net is -50. expense is 50.
+                    // If we have refund in w1 (+50) and no expense, net is +50.
+                    
+                    // Let's accumulate raw net per week
+                    let contribution = t.normalizedAmount
+                    let currentVal = mergedWeekly[w] ?? 0
+                    mergedWeekly[w] = currentVal + contribution
+                    
+                    mergedWeeklyTxs[w, default: []].append(t)
+                }
+                
+                // Now convert weekly values to "Magnitude" (abs) because the UI likely renders bars regardless of sign?
+                // Or does it assume positive? The UI usually shows green/red based on context or headers.
+                // But for a single category card, it might be confusing if we mix.
+                // Let's assume we want to show the 'Activity Volume' or 'Net Impact'.
+                // Given `totalSpent` is `abs(rawNet)`, let's make weekly consistent:
+                let finalizedWeekly = mergedWeekly.mapValues { abs($0) }
+                
+                let mergedExpected = (mergedTarget ?? 0) / Double(max(weeksInMonth, 1))
+                
+                let mergedSummary = CategorySummary(
+                    name: name,
+                    target: mergedTarget,
+                    isTargetSuggested: isTargetSuggested,
+                    sharedCategory: anyCfg?.sharedCategory,
+                    useSharedTarget: anyCfg?.useSharedTarget ?? false,
+                    isIncome: duplicates.first?.isIncome ?? false,
+                    totalSpent: mergedTotalSpent,
+                    weeksInMonth: weeksInMonth,
+                    weekly: finalizedWeekly,
+                    weeklyExpected: mergedExpected,
+                    weeklyDisplay: isWeeklyDisplay,
+                    transactions: combinedTxs,
+                    weeklyTransactions: mergedWeeklyTxs
+                )
+                
+                uniqueSummaries.append(mergedSummary)
+            }
+        }
+        
         var sharedGroupMembers: [String: [CategorySummary]] = [:]
         var standaloneCategories: [CategorySummary] = []
-
-        for summary in allCategorizedSummaries {
+        
+        for summary in uniqueSummaries {
             if let sharedCategoryName = categoryOrderMap[summary.name]?.sharedCategory, !sharedCategoryName.isEmpty {
                 sharedGroupMembers[sharedCategoryName, default: []].append(summary)
             } else {
@@ -1154,7 +1228,21 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     private func buildGroupSummary(title: String, members: [CategorySummary], weeksInMonth: Int) -> GroupSummary? {
         guard !members.isEmpty else { return nil }
-        let target = members.reduce(0) { $0 + ( $1.target ?? 0 ) }
+        
+        // Determine if this is a "Shared Target" group
+        // Use the heuristic: if the group name matches the members' sharedCategory
+        // and at least one member has useSharedTarget=true, likely they all share it.
+        // Or strictly: if all have useSharedTarget=true.
+        // Let's go with: if the first member has useSharedTarget=true, we treat the group as sharing that target.
+        // (Since they are grouped by sharedCategory, they should be consistent).
+        
+        let target: Double
+        if members.first?.useSharedTarget == true {
+             target = members.first?.target ?? 0
+        } else {
+             target = members.reduce(0) { $0 + ( $1.target ?? 0 ) }
+        }
+
         let spent  = members.reduce(0) { $0 + $1.totalSpent }
 
         var weekly: [Int: Double] = [:]

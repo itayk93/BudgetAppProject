@@ -2131,164 +2131,200 @@ private extension CashflowCardsView {
                                 Text(category.name).font(.title3).bold()
                                 Image(systemName: categoryIcon(for: category.name)).foregroundColor(.secondary)
                             }
+                            if category.useSharedTarget, let sharedName = category.sharedCategory {
+                                Text("חלק מ-\(sharedName)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
                             if targetValue > 0 {
                                 statusBadge(targetValue: targetValue, spent: category.totalSpent)
                             }
                         }
                         Spacer()
-                        VStack(alignment: .leading, spacing: 4) {
-                            Text("יצא").font(.footnote).foregroundColor(.secondary)
-                            HStack(alignment: .firstTextBaseline, spacing: 4) {
-                                Text(formatAmount(category.totalSpent))
-                                    .font(.system(size: 32, weight: .bold))
-                                    .foregroundColor(accentColor)
-                                    .monospacedDigit()
-                                Text("₪")
-                                    .font(.headline)
-                                    .foregroundColor(accentColor)
-                            }
-                        }
-                    }
-                    VStack(alignment: .leading, spacing: 8) {
-                        if targetValue > 0 {
-                            HStack {
-                                Text("צפוי היה לצאת").font(.footnote).foregroundColor(.secondary)
-                                Spacer()
-                                HStack(spacing: 4) {
-                                    Text(formatAmount(targetValue))
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
+                            VStack(alignment: .leading, spacing: 4) {
+                                Text(category.isIncome ? "נכנס" : "יצא").font(.footnote).foregroundColor(.secondary)
+                                HStack(alignment: .firstTextBaseline, spacing: 4) {
+                                    Text(formatAmount(category.totalSpent))
+                                        .font(.system(size: 32, weight: .bold))
+                                        .foregroundColor(accentColor)
                                         .monospacedDigit()
-                                    Text("₪").font(.caption).foregroundColor(.secondary)
+                                    Text("₪")
+                                        .font(.headline)
+                                        .foregroundColor(accentColor)
                                 }
                             }
                         }
-                        ProgressCapsule(progress: targetValue > 0 ? category.totalSpent / targetValue : 0, color: accentColor)
-                            .frame(height: 12)
-                        if category.isTargetSuggested && targetValue > 0 {
-                            Button(action: { onEdit?() }) {
-                                HStack(spacing: 4) {
-                                    Text("יעד מוצע: \(formatAmount(targetValue)) ₪")
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
-                                        .underline(true, color: .secondary.opacity(0.5))
-                                    Image(systemName: "pencil.circle")
-                                        .imageScale(.small)
-                                        .foregroundColor(.secondary)
+                        Spacer()
+                        VStack(alignment: .leading, spacing: 8) {
+                            if targetValue > 0 {
+                                HStack {
+                                    let label: String = {
+                                        if category.isIncome {
+                                            return isCurrentMonth ? "צפוי להיכנס" : "צפוי היה להיכנס"
+                                        } else {
+                                            return isCurrentMonth ? "צפוי לצאת" : "צפוי היה לצאת"
+                                        }
+                                    }()
+                                    Text(label).font(.footnote).foregroundColor(.secondary)
+                                    Spacer()
+                                    HStack(spacing: 4) {
+                                        Text(formatAmount(targetValue))
+                                            .font(.subheadline)
+                                            .foregroundColor(.secondary)
+                                            .monospacedDigit()
+                                        Text("₪").font(.caption).foregroundColor(.secondary)
+                                    }
+                                }
+                            }
+                            ProgressCapsule(progress: targetValue > 0 ? category.totalSpent / targetValue : 0, color: accentColor)
+                                .frame(height: 12)
+                            if category.isTargetSuggested && targetValue > 0 {
+                                Button(action: { onEdit?() }) {
+                                    HStack(spacing: 4) {
+                                        Text("יעד מוצע: \(formatAmount(targetValue)) ₪")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                            .underline(true, color: .secondary.opacity(0.5))
+                                        Image(systemName: "pencil.circle")
+                                            .imageScale(.small)
+                                            .foregroundColor(.secondary)
+                                        Spacer()
+                                    }
+                                }
+                                .buttonStyle(.plain)
+                            } else if targetValue > 0 {
+                                let difference = targetValue - category.totalSpent
+                                HStack {
+                                    HStack(spacing: 4) {
+                                        Image(systemName: difference >= 0 ? "arrow.down.circle" : "exclamationmark.circle.fill")
+                                            .foregroundColor(difference >= 0 ? Theme.success : Theme.danger)
+                                            .imageScale(.small)
+                                        
+                                        if category.isIncome {
+                                            // Income: target 1000, spent(earned) 800 -> 200 remaining to enter
+                                            // Income: target 1000, spent(earned) 1200 -> 200 excess
+                                            Text(difference > 0 ? "נשאר להכניס \(formatAmount(difference)) ₪" : "עודף של \(formatAmount(abs(difference))) ₪")
+                                                .font(.caption)
+                                                .foregroundColor(difference >= 0 ? Theme.success : Theme.danger)
+                                                .monospacedDigit()
+                                        } else {
+                                            // Expense: target 1000, spent 800 -> 200 remaining to spend
+                                            // Expense: target 1000, spent 1200 -> 200 over budget
+                                            Text(difference >= 0 ? "נשאר להוציא \(formatAmount(difference)) ₪" : "חריגה של \(formatAmount(abs(difference))) ₪")
+                                                .font(.caption)
+                                                .foregroundColor(difference >= 0 ? Theme.success : Theme.danger)
+                                                .monospacedDigit()
+                                        }
+                                    }
                                     Spacer()
                                 }
                             }
-                            .buttonStyle(.plain)
-                        } else if targetValue > 0 {
-                            let difference = targetValue - category.totalSpent
-                            HStack {
-                                HStack(spacing: 4) {
-                                    Image(systemName: difference >= 0 ? "arrow.down.circle" : "exclamationmark.circle.fill")
-                                        .foregroundColor(difference >= 0 ? Theme.success : Theme.danger)
-                                        .imageScale(.small)
-                                    Text(difference >= 0 ? "נשאר להוציא \(formatAmount(difference)) ₪" : "חריגה של \(formatAmount(abs(difference))) ₪")
-                                        .font(.caption)
-                                        .foregroundColor(difference >= 0 ? Theme.success : Theme.danger)
-                                        .monospacedDigit()
-                                }
-                                Spacer()
-                            }
                         }
                     }
-                }
-                .padding(16)
-                Divider()
-                VStack(spacing: 10) {
-                    if isWeekly {
-                        VStack(spacing: 0) {
-                            WeeklyGridHeader()
-                                .padding(.horizontal, 12)
-                                .padding(.vertical, 10)
-                            HorizontalGridDivider()
-                            ForEach(1..<(category.weeksInMonth + 1), id: \.self) { week in
-                                let spent = category.weekly[week] ?? 0
-                                let expected = category.weeklyExpected
-                                let remain = max(expected - spent, 0)
-                                let isOpen = expandedWeek == week
-                                VStack(spacing: 8) {
-                                    Button { withAnimation(.easeInOut(duration: 0.2)) { expandedWeek = isOpen ? nil : week } } label: {
-                                        WeekRow(week: week, spent: spent, remain: remain, isOpen: isOpen, currencySymbol: currencySymbol(for: currency))
-                                    }
-                                    .buttonStyle(.plain)
+                    .padding(16)
+                    Divider()
+                    VStack(spacing: 10) {
+                        if isWeekly {
+                            VStack(spacing: 0) {
+                                WeeklyGridHeader()
                                     .padding(.horizontal, 12)
-                                    .padding(.vertical, 6)
-                                    if isOpen {
-                                        let weekTransactions = transactions(for: week)
-                                        if weekTransactions.isEmpty {
-                                            Text("אין עסקאות בשבוע זה")
-                                                .font(.caption)
-                                                .foregroundColor(.secondary)
-                                                .frame(maxWidth: .infinity, alignment: .leading)
-                                                .transition(.opacity)
-                                                .padding(.horizontal, 16)
-                                                .padding(.bottom, 6)
-                                        } else {
-                                            VStack(spacing: 8) {
-                                                ForEach(weekTransactions, id: \.id) { tx in
-                                                    weeklyTransactionRow(tx, highlight: accentColor, currency: currency)
+                                    .padding(.vertical, 10)
+                                HorizontalGridDivider()
+                                ForEach(1..<(category.weeksInMonth + 1), id: \.self) { week in
+                                    let spent = category.weekly[week] ?? 0
+                                    let expected = category.weeklyExpected
+                                    let remain = max(expected - spent, 0)
+                                    let isOpen = expandedWeek == week
+                                    VStack(spacing: 8) {
+                                        Button { withAnimation(.easeInOut(duration: 0.2)) { expandedWeek = isOpen ? nil : week } } label: {
+                                            WeekRow(week: week, spent: spent, remain: remain, isOpen: isOpen, currencySymbol: currencySymbol(for: currency))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 6)
+                                        if isOpen {
+                                            let weekTransactions = transactions(for: week)
+                                            if weekTransactions.isEmpty {
+                                                Text("אין עסקאות בשבוע זה")
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                                    .transition(.opacity)
+                                                    .padding(.horizontal, 16)
+                                                    .padding(.bottom, 6)
+                                            } else {
+                                                VStack(spacing: 8) {
+                                                    ForEach(weekTransactions, id: \.id) { tx in
+                                                        weeklyTransactionRow(tx, highlight: accentColor, currency: currency)
+                                                    }
                                                 }
+                                                .padding(.horizontal, 16)
+                                                .padding(.bottom, 8)
+                                                .transition(.opacity)
                                             }
-                                            .padding(.horizontal, 16)
-                                            .padding(.bottom, 8)
-                                            .transition(.opacity)
                                         }
                                     }
+                                    if week != category.weeksInMonth { HorizontalGridDivider() }
                                 }
-                                if week != category.weeksInMonth { HorizontalGridDivider() }
                             }
-                        }
-                        .background(
-                            RoundedRectangle(cornerRadius: 18)
-                                .fill(weeklyGridBackgroundColor)
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 18)
-                                .stroke(weeklyGridLineColor.opacity(0.8), lineWidth: 1)
-                        )
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                        .frame(maxWidth: .infinity, alignment: .trailing)
-                    } else {
-                        if targetValue > 0 {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Text(isCurrentMonth ? "צפוי היה לצאת" : "סה\"כ יצא")
-                                        .font(.footnote)
-                                        .foregroundColor(.secondary)
-                                    HStack(spacing: 4) {
-                                        Text(formatAmount(isCurrentMonth ? targetValue : category.totalSpent))
-                                            .font(isCurrentMonth ? .subheadline : .headline)
-                                            .foregroundColor(isCurrentMonth ? .secondary : accentColor)
-                                            .monospacedDigit()
-                                        Text("₪")
-                                            .font(isCurrentMonth ? .caption2 : .subheadline)
-                                            .foregroundColor(isCurrentMonth ? .secondary : accentColor)
-                                    }
-                                }
-                                Spacer()
-                                if !isCurrentMonth {
-                                    VStack(alignment: .trailing, spacing: 2) {
-                                        Text("צפוי היה לצאת")
-                                            .font(.caption2)
-                                            .foregroundColor(.secondary)
-                                        HStack(spacing: 4) {
-                                            Text(formatAmount(targetValue))
-                                                .font(.caption)
+                            .background(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .fill(weeklyGridBackgroundColor)
+                            )
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 18)
+                                    .stroke(weeklyGridLineColor.opacity(0.8), lineWidth: 1)
+                            )
+                            .clipShape(RoundedRectangle(cornerRadius: 18))
+                            .frame(maxWidth: .infinity, alignment: .trailing)
+                        } else {
+                            if targetValue > 0 {
+                                HStack {
+                                    VStack(alignment: .leading, spacing: 4) {
+                                        if isCurrentMonth {
+                                            // Current month - we show the target as the primary "Expected"
+                                            let label = category.isIncome ? "צפוי להיכנס" : "צפוי לצאת"
+                                            Text(label)
+                                                .font(.footnote)
                                                 .foregroundColor(.secondary)
+                                        } else {
+                                            // Past month - we show the Total Spent/Entered as primary
+                                            let label = category.isIncome ? "סה\"כ נכנס" : "סה\"כ יצא"
+                                            Text(label)
+                                                .font(.footnote)
+                                                .foregroundColor(.secondary)
+                                        }
+                                        HStack(spacing: 4) {
+                                            Text(formatAmount(isCurrentMonth ? targetValue : category.totalSpent))
+                                                .font(isCurrentMonth ? .subheadline : .headline)
+                                                .foregroundColor(isCurrentMonth ? .secondary : accentColor)
                                                 .monospacedDigit()
                                             Text("₪")
+                                                .font(isCurrentMonth ? .caption2 : .subheadline)
+                                                .foregroundColor(isCurrentMonth ? .secondary : accentColor)
+                                        }
+                                    }
+                                    Spacer()
+                                    if !isCurrentMonth {
+                                        VStack(alignment: .trailing, spacing: 2) {
+                                            let label = category.isIncome ? "צפוי היה להיכנס" : "צפוי היה לצאת"
+                                            Text(label)
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
+                                            HStack(spacing: 4) {
+                                                Text(formatAmount(targetValue))
+                                                    .font(.caption)
+                                                    .foregroundColor(.secondary)
+                                                    .monospacedDigit()
+                                                Text("₪")
+                                                    .font(.caption2)
+                                                    .foregroundColor(.secondary)
+                                            }
                                         }
                                     }
                                 }
                             }
 
-                        }
                         Divider()
                         DisclosureGroup(isExpanded: $showMonthlyTransactions) {
                             VStack(spacing: 10) {

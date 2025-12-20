@@ -9,6 +9,7 @@ struct EditTargetView: View {
     let onSuggest: () async -> Double
     
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.layoutDirection) private var layoutDirection
     
     @State private var suggestedValue: Double?
     @State private var isLoadingSuggestion = false
@@ -18,44 +19,61 @@ struct EditTargetView: View {
             Form {
                 Section("קטגוריה") {
                     Text(categoryName)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 
                 Section("יעד חודשי") {
                     HStack {
+                        TextField("סכום", text: $tempValue)
+                            .multilineTextAlignment(.leading) // In RTL, leading is Right
+                        #if os(iOS)
+                            .keyboardType(.decimalPad)
+                        #endif
                         Text("₪")
                             .foregroundColor(.secondary)
-                        TextField("סכום", text: $tempValue)
-#if os(iOS)
-                            .keyboardType(.decimalPad)
-#endif
                     }
                 }
                 
                 if let suggestedValue = suggestedValue {
-                    Section("הצעה") {
-                        HStack {
-                            Text("ingly suggested")
-                            Spacer()
-                            Text("₪")
-                                .foregroundColor(.secondary)
-                            Text(formatNumber(suggestedValue))
-                                .foregroundColor(.blue)
+                    Section {
+                        Button {
+                            tempValue = String(format: "%.0f", suggestedValue)
+                        } label: {
+                            HStack {
+                                Text("יעד מוצע: \(formatNumber(suggestedValue)) ₪")
+                                    .foregroundColor(.primary)
+                                Spacer()
+                                Text("החל")
+                                    .foregroundColor(.blue)
+                            }
                         }
+                    } header: {
+                        Text("הצעה")
+                    } footer: {
+                        Text("מבוסס על ממוצע הוצאות ב-3 החודשים האחרונים")
                     }
                 }
                 
                 Section {
-                    Button("קבל הצעה") {
+                    Button(action: {
                         Task {
                             isLoadingSuggestion = true
-                            suggestedValue = await onSuggest()
+                            let value = await onSuggest()
+                            suggestedValue = value
                             isLoadingSuggestion = false
+                        }
+                    }) {
+                        if isLoadingSuggestion {
+                            ProgressView()
+                        } else {
+                            Text("בדוק הצעה ליעד")
                         }
                     }
                     .disabled(isLoadingSuggestion)
-                    .foregroundColor(.blue)
+                    .frame(maxWidth: .infinity, alignment: .center)
                 }
             }
+            .environment(\.layoutDirection, .rightToLeft) // Enforce RTL for the form
             .navigationTitle("עדכן יעד")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -70,12 +88,10 @@ struct EditTargetView: View {
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("שמור") {
-                        if let value = Double(tempValue) {
-                            onSave(value)
-                            dismiss()
-                        }
+                        save()
                     }
                     .disabled(tempValue.isEmpty || Double(tempValue) == nil)
+                    .fontWeight(.bold)
                 }
 #else
                 ToolbarItem(placement: .cancellationAction) {
@@ -86,10 +102,7 @@ struct EditTargetView: View {
 
                 ToolbarItem(placement: .confirmationAction) {
                     Button("שמור") {
-                        if let value = Double(tempValue) {
-                            onSave(value)
-                            dismiss()
-                        }
+                        save()
                     }
                     .disabled(tempValue.isEmpty || Double(tempValue) == nil)
                 }
@@ -97,9 +110,17 @@ struct EditTargetView: View {
             }
             .onAppear {
                 if let target = target {
-                    tempValue = String(target)
+                    tempValue = String(format: "%.0f", target)
                 }
             }
+        }
+        .environment(\.layoutDirection, .rightToLeft) // Enforce RTL for the stack
+    }
+    
+    private func save() {
+        if let value = Double(tempValue) {
+            onSave(value)
+            dismiss()
         }
     }
     
