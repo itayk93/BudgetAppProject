@@ -76,6 +76,7 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
             try await service.markReviewed(transaction: transaction, categoryName: transaction.effectiveCategoryName, note: note)
             actionMessage = "אישרת את \(transaction.business_name ?? "העסקה")"
         } catch {
+            print("❌ [APPROVE ERROR] Failed to approve tx \(transaction.id): \(error)")
             restore(transaction, at: index)
             errorMessage = error.localizedDescription
         }

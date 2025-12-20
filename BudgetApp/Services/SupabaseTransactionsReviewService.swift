@@ -344,9 +344,12 @@ final class SupabaseTransactionsReviewService {
             is_income: transaction.isIncome,
             payment_method: transaction.payment_method,
             flow_month: transaction.flow_month,
+            payment_method: transaction.payment_method,
+            flow_month: transaction.flow_month,
             created_at: isoFormatter.string(from: Date()),
             source_type: transaction.source_type ?? "manual_approval",
-            reviewed_at: isoFormatter.string(from: Date())
+            reviewed_at: isoFormatter.string(from: Date()),
+            normalized_amount: transaction.normalizedAmount
         )
         
         let encoder = JSONEncoder()
@@ -731,6 +734,7 @@ private struct TransactionInsertPayload: Encodable {
     let created_at: String
     let source_type: String
     let reviewed_at: String
+    let normalized_amount: Double
 
     enum CodingKeys: String, CodingKey {
         case user_id
@@ -748,5 +752,6 @@ private struct TransactionInsertPayload: Encodable {
         case created_at
         case source_type
         case reviewed_at
+        case normalized_amount = "normalized_amount"
     }
 }
