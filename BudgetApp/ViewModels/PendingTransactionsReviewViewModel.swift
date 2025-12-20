@@ -72,7 +72,7 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         processingTransactionID = transaction.id
         let index = removeTransaction(transaction)
         do {
-        do {
+
             try await service.markReviewed(transaction: transaction, categoryName: transaction.effectiveCategoryName, note: note)
             actionMessage = "אישרת את \(transaction.business_name ?? "העסקה")"
         } catch {
