@@ -35,8 +35,10 @@ struct EditTransactionView: View {
     @State private var errorMessage: String?
     @State private var sheetDragOffset: CGFloat = 0
     @State private var contentHeight: CGFloat = 600
+    @State private var autoSaveTask: Task<Void, Never>?
 
     @EnvironmentObject private var vm: CashFlowDashboardViewModel
+
 
     init(
         transaction: Transaction,
@@ -539,14 +541,26 @@ struct EditTransactionView: View {
                         .background(Color(UIColor.systemGray6))
                         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
                         .multilineTextAlignment(.leading)
-                        .onChange(of: notes) { _, _ in
+                        .onChange(of: notes) { _, newValue in
                             hasPendingChanges = true
+                            
+                            // Debounced Auto-Save
+                            autoSaveTask?.cancel()
+                            autoSaveTask = Task {
+                                try? await Task.sleep(nanoseconds: 800_000_000) // 0.8s
+                                if !Task.isCancelled {
+                                    await performSilentSave()
+                                }
+                            }
                         }
 
                     Button {
-                        hasPendingChanges = true
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
-                            noteExpanded = false
+                        // Immediate save on close
+                        Task {
+                            await performSilentSave()
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.85)) {
+                                noteExpanded = false
+                            }
                         }
                     } label: {
                         HStack {
@@ -574,6 +588,27 @@ struct EditTransactionView: View {
                         )
                 )
             }
+        }
+    }
+
+    private func performSilentSave() async {
+        guard !isSaving else { return }
+        // Don't modify 'hasPendingChanges' here to allow onDisappear to verify final state if needed,
+        // or set it to false if we are confident the save covers everything.
+        // For notes, we can treat it as a partial save.
+        
+        let trimmedNotes = notes.isEmpty ? nil : notes
+        
+        do {
+            _ = try await vm.updateTransaction(
+                transaction,
+                categoryName: categoryName, // Keep current category
+                notes: trimmedNotes,
+                flowMonth: flowMonth // Keep current flow month
+            )
+            // Success - strictly sound, no UI toggle
+        } catch {
+             AppLogger.log("⚠️ Silent save failed: \(error)", force: true)
         }
     }
 

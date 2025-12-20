@@ -22,6 +22,7 @@ struct PendingTransactionsReviewView: View {
     @State private var applyToAllFuture = false
     @State private var autoSaveTask: Task<Void, Never>?
 
+    let cashFlowID: String
     var onDismiss: () -> Void
 
     private let swipeThreshold: CGFloat = 110
@@ -337,7 +338,7 @@ struct PendingTransactionsReviewView: View {
              Button {
                  guard !isProcessing else { return }
                  let noteToSave = heroNoteText.isEmpty ? nil : heroNoteText
-                 Task { await viewModel.approve(transaction, note: noteToSave) }
+                 Task { await viewModel.approve(transaction, note: noteToSave, cashFlowID: cashFlowID) }
              } label: {
                  HStack {
                      Text("להמשיך")

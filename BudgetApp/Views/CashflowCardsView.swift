@@ -148,12 +148,16 @@ struct CashflowCardsView: View {
                                 withAnimation {
                                     showingPendingTransactionsSheet = false
                                 }
+                                Task { await vm.refreshData() }
                             }
                             
-                        PendingTransactionsReviewView(onDismiss: {
+                        PendingTransactionsReviewView(
+                            cashFlowID: vm.selectedCashFlow?.id ?? "",
+                            onDismiss: {
                              withAnimation {
                                  showingPendingTransactionsSheet = false
                              }
+                             Task { await vm.refreshData() }
                         })
                         .transition(.move(edge: .bottom))
                         .zIndex(102) 

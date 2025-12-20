@@ -313,9 +313,9 @@ final class SupabaseTransactionsReviewService {
         }
     }
 
-    func markReviewed(transaction: Transaction, categoryName: String? = nil, note: String? = nil) async throws {
+    func markReviewed(transaction: Transaction, categoryName: String? = nil, note: String? = nil, cashFlowID: String) async throws {
         // 1. Insert into 'transactions' table (Client-side fix for broken trigger)
-        try await insertToTransactions(transaction: transaction, categoryName: categoryName, note: note)
+        try await insertToTransactions(transaction: transaction, categoryName: categoryName, note: note, cashFlowID: cashFlowID)
         
         // 2. Mark as reviewed in 'bank_scraper_pending_transactions' (or delete, depending on logic, but typically we mark reviewed)
         // logic moved from old markReviewed:
@@ -327,7 +327,7 @@ final class SupabaseTransactionsReviewService {
         )
     }
 
-    private func insertToTransactions(transaction: Transaction, categoryName: String?, note: String?) async throws {
+    private func insertToTransactions(transaction: Transaction, categoryName: String?, note: String?, cashFlowID: String) async throws {
         let finalCategory = categoryName ?? transaction.effectiveCategoryName
         let finalNote = note ?? transaction.notes
         
@@ -347,7 +347,7 @@ final class SupabaseTransactionsReviewService {
             created_at: isoFormatter.string(from: Date()),
             source_type: transaction.source_type ?? "manual_approval",
             reviewed_at: isoFormatter.string(from: Date()),
-            normalized_amount: transaction.normalizedAmount
+            cash_flow_id: cashFlowID
         )
         
         let encoder = JSONEncoder()
@@ -731,7 +731,7 @@ private struct TransactionInsertPayload: Encodable {
     let created_at: String
     let source_type: String
     let reviewed_at: String
-    let normalized_amount: Double
+    let cash_flow_id: String
 
     enum CodingKeys: String, CodingKey {
         case user_id
@@ -748,6 +748,6 @@ private struct TransactionInsertPayload: Encodable {
         case created_at
         case source_type
         case reviewed_at
-        case normalized_amount = "normalized_amount"
+        case cash_flow_id
     }
 }

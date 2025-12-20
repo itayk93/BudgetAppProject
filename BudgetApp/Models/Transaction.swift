@@ -76,7 +76,7 @@ struct Transaction: Identifiable, Codable, Hashable {
         case currency
         case absoluteAmount = "amount"
         case notes
-        case normalizedAmount = "normalized_amount"
+        // normalizedAmount removed from CodingKeys to prevent decoding/encoding from DB
         case excluded_from_flow
         case category_name
         case category
@@ -193,19 +193,8 @@ struct Transaction: Identifiable, Codable, Hashable {
 
         absoluteAmount = parsedAmount ?? 0.0
 
-        // ---- normalized_amount: אם יש, אותו טריק; אחרת fallback ל-absoluteAmount ----
-        let parsedNormalized: Double? = {
-            if let d = try? container.decode(Double.self, forKey: .normalizedAmount) {
-                return d
-            }
-            if let s = try? container.decode(String.self, forKey: .normalizedAmount) {
-                let cleaned = s.replacingOccurrences(of: ",", with: "")
-                return Double(cleaned)
-            }
-            return nil
-        }()
-
-        normalizedAmount = parsedNormalized ?? absoluteAmount
+        // ---- normalized_amount: Always duplicate absoluteAmount to avoid missing column issues ----
+        normalizedAmount = absoluteAmount
 
         // ---- isIncome: אם הגיע מה-API – להשתמש בו; אחרת לחשב לפי amount ----
         if let incomeFlag = try? container.decode(Bool.self, forKey: .isIncome) {
@@ -273,7 +262,8 @@ struct Transaction: Identifiable, Codable, Hashable {
         try container.encodeIfPresent(currency, forKey: .currency)
         try container.encode(absoluteAmount, forKey: .absoluteAmount)
         try container.encodeIfPresent(notes, forKey: .notes)
-        try container.encode(normalizedAmount, forKey: .normalizedAmount)
+        // normalizedAmount is purely internal/computed now, do not encode to DB
+        // try container.encode(normalizedAmount, forKey: .normalizedAmount)
         try container.encodeIfPresent(excluded_from_flow, forKey: .excluded_from_flow)
         try container.encodeIfPresent(category_name, forKey: .category_name)
         try container.encodeIfPresent(category, forKey: .category)

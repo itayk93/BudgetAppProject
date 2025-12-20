@@ -67,13 +67,13 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
         loading = false
     }
 
-    func approve(_ transaction: Transaction, note: String? = nil) async {
+    func approve(_ transaction: Transaction, note: String? = nil, cashFlowID: String) async {
         guard let service = service else { return }
         processingTransactionID = transaction.id
         let index = removeTransaction(transaction)
         do {
 
-            try await service.markReviewed(transaction: transaction, categoryName: transaction.effectiveCategoryName, note: note)
+            try await service.markReviewed(transaction: transaction, categoryName: transaction.effectiveCategoryName, note: note, cashFlowID: cashFlowID)
             actionMessage = "אישרת את \(transaction.business_name ?? "העסקה")"
         } catch {
             print("❌ [APPROVE ERROR] Failed to approve tx \(transaction.id): \(error)")
