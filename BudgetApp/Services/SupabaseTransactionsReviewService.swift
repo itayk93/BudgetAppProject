@@ -373,6 +373,20 @@ final class SupabaseTransactionsReviewService {
             payment_identifier: transaction.payment_identifier,
             transaction_hash: transaction.transaction_hash,
             bank_scraper_source_id: transaction.bank_scraper_source_id,
+            payment_month: transaction.payment_month,
+            payment_year: transaction.payment_year,
+            charge_date: transaction.charge_date,
+            original_amount: transaction.original_amount ?? transaction.absoluteAmount,
+            payment_number: transaction.payment_number,
+            total_payments: transaction.total_payments,
+            business_country: transaction.business_country,
+            source_category: transaction.source_category,
+            transaction_type: transaction.transaction_type,
+            execution_method: transaction.execution_method,
+            file_source: transaction.file_source,
+            recipient_name: transaction.recipient_name,
+            duplicate_parent_id: transaction.duplicate_parent_id,
+            config_id: transaction.config_id,
             flow_month: transaction.flow_month,
 
             created_at: isoFormatter.string(from: Date()),
@@ -655,26 +669,40 @@ final class SupabaseTransactionsReviewService {
             // Determine date - use paymentDate or original date
             // split.paymentDate is a String, likely YYYY-MM-DD
             
-            let payload = TransactionInsertPayload(
-                user_id: originalTransaction.user_id,
-                business_name: split.businessName,
-                amount: split.amount, // Amount is signed based on logic in SplitTransactionSheet
-                currency: split.currency,
-                date: originalTransaction.date, // Preserve original date
-                payment_date: split.paymentDate,
-                category_name: split.category,
-                notes: split.description,
-                status: "reviewed",
-                payment_method: originalTransaction.payment_method,
-                payment_identifier: nil,
-                transaction_hash: nil,
-                bank_scraper_source_id: nil,
-                flow_month: split.flowMonth,
-                created_at: isoFormatter.string(from: Date()),
-                source_type: "manual_split",
-                reviewed_at: isoFormatter.string(from: Date()),
-                cash_flow_id: cashFlowID // Use provided cashFlowID
-            )
+        let payload = TransactionInsertPayload(
+            user_id: originalTransaction.user_id,
+            business_name: split.businessName,
+            amount: split.amount, // Amount is signed based on logic in SplitTransactionSheet
+            currency: split.currency,
+            date: originalTransaction.date, // Preserve original date
+            payment_date: split.paymentDate,
+            category_name: split.category,
+            notes: split.description,
+            status: "reviewed",
+            payment_method: originalTransaction.payment_method,
+            payment_identifier: originalTransaction.payment_identifier,
+            transaction_hash: originalTransaction.transaction_hash,
+            bank_scraper_source_id: originalTransaction.bank_scraper_source_id,
+            payment_month: originalTransaction.payment_month,
+            payment_year: originalTransaction.payment_year,
+            charge_date: originalTransaction.charge_date,
+            original_amount: originalTransaction.original_amount ?? originalTransaction.absoluteAmount,
+            source_category: originalTransaction.source_category,
+            transaction_type: originalTransaction.transaction_type,
+            execution_method: originalTransaction.execution_method,
+            file_source: originalTransaction.file_source,
+            recipient_name: originalTransaction.recipient_name,
+            duplicate_parent_id: originalTransaction.duplicate_parent_id,
+            config_id: originalTransaction.config_id,
+            payment_number: originalTransaction.payment_number,
+            total_payments: originalTransaction.total_payments,
+            business_country: originalTransaction.business_country,
+            flow_month: split.flowMonth,
+            created_at: isoFormatter.string(from: Date()),
+            source_type: originalTransaction.source_type ?? "manual_split",
+            reviewed_at: isoFormatter.string(from: Date()),
+            cash_flow_id: cashFlowID // Use provided cashFlowID
+        )
             
             let encoder = JSONEncoder()
             let body = try encoder.encode(payload)
@@ -911,6 +939,20 @@ private struct TransactionInsertPayload: Encodable {
     let payment_identifier: String?
     let transaction_hash: String?
     let bank_scraper_source_id: Int64?
+    let payment_month: Int?
+    let payment_year: Int?
+    let charge_date: String?
+    let original_amount: Double?
+    let payment_number: Int?
+    let total_payments: Int?
+    let business_country: String?
+    let source_category: String?
+    let transaction_type: String?
+    let execution_method: String?
+    let file_source: String?
+    let recipient_name: String?
+    let duplicate_parent_id: String?
+    let config_id: Int?
     let flow_month: String?
     let created_at: String
     let source_type: String
@@ -931,10 +973,112 @@ private struct TransactionInsertPayload: Encodable {
         case payment_identifier
         case transaction_hash
         case bank_scraper_source_id
+        case payment_month
+        case payment_year
+        case charge_date
+        case original_amount
+        case payment_number
+        case total_payments
+        case business_country
+        case source_category
+        case transaction_type
+        case execution_method
+        case file_source
+        case recipient_name
+        case duplicate_parent_id
+        case config_id
         case flow_month
         case created_at
         case source_type
         case reviewed_at
         case cash_flow_id
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        if let user_id {
+            try container.encode(user_id, forKey: .user_id)
+        }
+        if let business_name {
+            try container.encode(business_name, forKey: .business_name)
+        }
+        try container.encode(amount, forKey: .amount)
+        if let currency {
+            try container.encode(currency, forKey: .currency)
+        }
+        if let date {
+            try container.encode(date, forKey: .date)
+        }
+        if let payment_date {
+            try container.encode(payment_date, forKey: .payment_date)
+        }
+        if let category_name {
+            try container.encode(category_name, forKey: .category_name)
+        }
+        if let notes {
+            try container.encode(notes, forKey: .notes)
+        }
+        try container.encode(status, forKey: .status)
+        if let payment_method {
+            try container.encode(payment_method, forKey: .payment_method)
+        }
+        if let payment_identifier {
+            try container.encode(payment_identifier, forKey: .payment_identifier)
+        }
+        if let transaction_hash {
+            try container.encode(transaction_hash, forKey: .transaction_hash)
+        }
+        if let bank_scraper_source_id {
+            try container.encode(bank_scraper_source_id, forKey: .bank_scraper_source_id)
+        }
+        if let payment_month {
+            try container.encode(payment_month, forKey: .payment_month)
+        }
+        if let payment_year {
+            try container.encode(payment_year, forKey: .payment_year)
+        }
+        if let charge_date {
+            try container.encode(charge_date, forKey: .charge_date)
+        }
+        if let original_amount {
+            try container.encode(original_amount, forKey: .original_amount)
+        }
+        if let payment_number {
+            try container.encode(payment_number, forKey: .payment_number)
+        }
+        if let total_payments {
+            try container.encode(total_payments, forKey: .total_payments)
+        }
+        if let business_country {
+            try container.encode(business_country, forKey: .business_country)
+        }
+        if let source_category {
+            try container.encode(source_category, forKey: .source_category)
+        }
+        if let transaction_type {
+            try container.encode(transaction_type, forKey: .transaction_type)
+        }
+        if let execution_method {
+            try container.encode(execution_method, forKey: .execution_method)
+        }
+        if let file_source {
+            try container.encode(file_source, forKey: .file_source)
+        }
+        if let recipient_name {
+            try container.encode(recipient_name, forKey: .recipient_name)
+        }
+        if let duplicate_parent_id {
+            try container.encode(duplicate_parent_id, forKey: .duplicate_parent_id)
+        }
+        if let config_id {
+            try container.encode(config_id, forKey: .config_id)
+        }
+        if let flow_month {
+            try container.encode(flow_month, forKey: .flow_month)
+        }
+        try container.encode(created_at, forKey: .created_at)
+        try container.encode(source_type, forKey: .source_type)
+        try container.encode(reviewed_at, forKey: .reviewed_at)
+        try container.encode(cash_flow_id, forKey: .cash_flow_id)
     }
 }
