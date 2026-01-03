@@ -294,6 +294,7 @@ final class SupabaseTransactionsReviewService {
         AppLogger.log("⚙️ [DEBUG] Reverting \(transactionIDs.count) transactions to pending")
         let payload = TransactionUpdatePayload(
             category_name: nil,
+            effective_category_name: nil,
             status: "pending",
             reviewed_at: nil,
             notes: nil,
@@ -315,22 +316,48 @@ final class SupabaseTransactionsReviewService {
     }
 
     func markReviewed(transaction: Transaction, categoryName: String? = nil, note: String? = nil, cashFlowID: String) async throws {
-        // 1. Insert into 'transactions' table (Client-side fix for broken trigger)
-        try await insertToTransactions(transaction: transaction, categoryName: categoryName, note: note, cashFlowID: cashFlowID)
-        
-        // 2. Mark as reviewed in 'bank_scraper_pending_transactions' (or delete, depending on logic, but typically we mark reviewed)
-        // logic moved from old markReviewed:
+        let rawCategory = categoryName ?? transaction.effectiveCategoryName
+        let trimmedCategory = rawCategory.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalCategory = trimmedCategory.isEmpty ? nil : trimmedCategory
+
+        let existingIDs = try await fetchExistingTransactionIDs(for: transaction)
+        if existingIDs.isEmpty {
+            AppLogger.log("⚠️ [REVIEW] No existing transactions row found for tx \(transaction.id). Inserting fallback row.")
+            try await insertToTransactions(
+                transaction: transaction,
+                categoryName: finalCategory,
+                note: note,
+                cashFlowID: cashFlowID
+            )
+        } else {
+            AppLogger.log("✅ [REVIEW] Updating \(existingIDs.count) existing transaction row(s) for tx \(transaction.id).")
+            for id in existingIDs {
+                try await update(
+                    transactionID: id,
+                    categoryName: finalCategory,
+                    effectiveCategoryName: finalCategory,
+                    note: note,
+                    markReviewed: true,
+                    flowMonth: transaction.flow_month
+                )
+            }
+        }
+
+        // Mark as reviewed in 'bank_scraper_pending_transactions'
         try await update(
             transactionID: transaction.id,
-            categoryName: categoryName,
+            categoryName: finalCategory,
+            effectiveCategoryName: finalCategory,
             note: note,
             markReviewed: true
         )
     }
 
     private func insertToTransactions(transaction: Transaction, categoryName: String?, note: String?, cashFlowID: String) async throws {
-        let finalCategory = categoryName ?? transaction.effectiveCategoryName
-        let finalNote = note ?? transaction.notes
+        let categorySource = categoryName ?? transaction.effectiveCategoryName
+        let trimmedCategory = categorySource.trimmingCharacters(in: .whitespacesAndNewlines)
+        let finalCategory = trimmedCategory.isEmpty ? nil : trimmedCategory
+        let finalNote = sanitize(note ?? transaction.notes)
         
         let payload = TransactionInsertPayload(
             user_id: transaction.user_id,
@@ -343,6 +370,9 @@ final class SupabaseTransactionsReviewService {
             notes: finalNote,
             status: "reviewed",
             payment_method: transaction.payment_method,
+            payment_identifier: transaction.payment_identifier,
+            transaction_hash: transaction.transaction_hash,
+            bank_scraper_source_id: transaction.bank_scraper_source_id,
             flow_month: transaction.flow_month,
 
             created_at: isoFormatter.string(from: Date()),
@@ -368,6 +398,7 @@ final class SupabaseTransactionsReviewService {
         try await update(
             transactionID: transactionID,
             categoryName: categoryName,
+            effectiveCategoryName: categoryName,
             note: note,
             markReviewed: false
         )
@@ -509,6 +540,72 @@ final class SupabaseTransactionsReviewService {
         }
     }
 
+    private func fetchExistingTransactionIDs(for transaction: Transaction) async throws -> [String] {
+        guard let userID = normalizedQueryValue(transaction.user_id) else {
+            AppLogger.log("⚠️ [REVIEW] Missing user_id for tx \(transaction.id); skipping lookup.")
+            return []
+        }
+        guard let query = buildExistingTransactionQuery(for: transaction, userID: userID) else {
+            AppLogger.log("⚠️ [REVIEW] Missing lookup keys for tx \(transaction.id); skipping lookup.")
+            return []
+        }
+
+        let data = try await request(path: "transactions", queryItems: query)
+        let rows = try decoder.decode([TransactionIDRow].self, from: data)
+        return rows.map { $0.id }
+    }
+
+    private func buildExistingTransactionQuery(for transaction: Transaction, userID: String) -> [URLQueryItem]? {
+        let base: [URLQueryItem] = [
+            URLQueryItem(name: "select", value: "id"),
+            URLQueryItem(name: "user_id", value: "eq.\(userID)"),
+            URLQueryItem(name: "limit", value: "5")
+        ]
+
+        if let hash = normalizedQueryValue(transaction.transaction_hash) {
+            return base + [URLQueryItem(name: "transaction_hash", value: "eq.\(hash)")]
+        }
+
+        if let sourceID = transaction.bank_scraper_source_id {
+            return base + [URLQueryItem(name: "bank_scraper_source_id", value: "eq.\(sourceID)")]
+        }
+
+        if let identifier = normalizedQueryValue(transaction.payment_identifier) {
+            var query = base + [URLQueryItem(name: "payment_identifier", value: "eq.\(identifier)")]
+            if let method = normalizedQueryValue(transaction.payment_method) {
+                query.append(URLQueryItem(name: "payment_method", value: "eq.\(method)"))
+            }
+            if let paymentDate = normalizedQueryValue(transaction.payment_date) {
+                query.append(URLQueryItem(name: "payment_date", value: "eq.\(paymentDate)"))
+            }
+            return query
+        }
+
+        if let businessName = normalizedQueryValue(transaction.business_name),
+           let paymentDate = normalizedQueryValue(transaction.payment_date) {
+            var query = base
+            query.append(URLQueryItem(name: "business_name", value: "eq.\(businessName)"))
+            query.append(URLQueryItem(name: "payment_date", value: "eq.\(paymentDate)"))
+            query.append(URLQueryItem(name: "amount", value: "eq.\(formatAmountForQuery(transaction.absoluteAmount))"))
+            return query
+        }
+
+        return nil
+    }
+
+    private func normalizedQueryValue(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
+    }
+
+    private func formatAmountForQuery(_ amount: Double) -> String {
+        if amount.rounded(.towardZero) == amount {
+            return String(Int64(amount))
+        }
+        return String(amount)
+    }
+
     private func tableName(for transactionID: String) -> String {
         let trimmed = transactionID.trimmingCharacters(in: .whitespacesAndNewlines)
         return Int64(trimmed) != nil ? "bank_scraper_pending_transactions" : "transactions"
@@ -517,6 +614,7 @@ final class SupabaseTransactionsReviewService {
     private func update(
         transactionID: String,
         categoryName: String?,
+        effectiveCategoryName: String? = nil,
         note: String?,
         markReviewed: Bool,
         flowMonth: String? = nil
@@ -524,6 +622,7 @@ final class SupabaseTransactionsReviewService {
         let cleanedNote = sanitize(note)
         let payload = TransactionUpdatePayload(
             category_name: categoryName,
+            effective_category_name: effectiveCategoryName,
             status: markReviewed ? "reviewed" : nil,
             reviewed_at: markReviewed ? isoFormatter.string(from: Date()) : nil,
             notes: cleanedNote,
@@ -546,6 +645,59 @@ final class SupabaseTransactionsReviewService {
         guard let note = note else { return nil }
         let trimmed = note.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+
+    func applySplit(originalTransaction: Transaction, splits: [SplitTransactionEntry], cashFlowID: String) async throws {
+        AppLogger.log("✂️ [SPLIT] Applying client-side split for tx \(originalTransaction.id) with \(splits.count) entries, cashFlowID: \(cashFlowID)")
+        
+        // 1. Create new transactions for each split
+        for split in splits {
+            // Determine date - use paymentDate or original date
+            // split.paymentDate is a String, likely YYYY-MM-DD
+            
+            let payload = TransactionInsertPayload(
+                user_id: originalTransaction.user_id,
+                business_name: split.businessName,
+                amount: split.amount, // Amount is signed based on logic in SplitTransactionSheet
+                currency: split.currency,
+                date: originalTransaction.date, // Preserve original date
+                payment_date: split.paymentDate,
+                category_name: split.category,
+                notes: split.description,
+                status: "reviewed",
+                payment_method: originalTransaction.payment_method,
+                payment_identifier: nil,
+                transaction_hash: nil,
+                bank_scraper_source_id: nil,
+                flow_month: split.flowMonth,
+                created_at: isoFormatter.string(from: Date()),
+                source_type: "manual_split",
+                reviewed_at: isoFormatter.string(from: Date()),
+                cash_flow_id: cashFlowID // Use provided cashFlowID
+            )
+            
+            let encoder = JSONEncoder()
+            let body = try encoder.encode(payload)
+            
+            AppLogger.log("📤 [INSERT] Inserting split part: \(split.businessName) - \(split.amount)")
+            
+            _ = try await request(
+                path: "transactions",
+                method: "POST",
+                body: body,
+                prefer: "return=minimal"
+            )
+        }
+        
+        // 2. Mark original transaction as reviewed and split
+        try await updateFlags(
+            transactionID: originalTransaction.id,
+            suppressFromAutomation: nil,
+            manualSplitApplied: true,
+            markReviewed: true
+        )
+        
+        AppLogger.log("✅ [SPLIT] Successfully applied split for \(originalTransaction.id)")
     }
 
     private func updateFlags(
@@ -639,8 +791,32 @@ final class SupabaseTransactionsReviewService {
     }
 }
 
+private struct TransactionIDRow: Decodable {
+    let id: String
+
+    enum CodingKeys: String, CodingKey {
+        case id
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let s = try? container.decode(String.self, forKey: .id) {
+            id = s
+        } else if let n = try? container.decode(Int64.self, forKey: .id) {
+            id = String(n)
+        } else {
+            throw DecodingError.dataCorruptedError(
+                forKey: .id,
+                in: container,
+                debugDescription: "Unsupported id type for TransactionIDRow.id"
+            )
+        }
+    }
+}
+
 private struct TransactionUpdatePayload: Encodable {
     let category_name: String?
+    let effective_category_name: String?
     let status: String?
     let reviewed_at: String?
     let notes: String?
@@ -648,6 +824,7 @@ private struct TransactionUpdatePayload: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case category_name
+        case effective_category_name
         case status
         case reviewed_at
         case notes
@@ -658,6 +835,9 @@ private struct TransactionUpdatePayload: Encodable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         if let category_name {
             try container.encode(category_name, forKey: .category_name)
+        }
+        if let effective_category_name {
+            try container.encode(effective_category_name, forKey: .effective_category_name)
         }
         if let status {
             try container.encode(status, forKey: .status)
@@ -728,6 +908,9 @@ private struct TransactionInsertPayload: Encodable {
     let notes: String?
     let status: String
     let payment_method: String?
+    let payment_identifier: String?
+    let transaction_hash: String?
+    let bank_scraper_source_id: Int64?
     let flow_month: String?
     let created_at: String
     let source_type: String
@@ -745,6 +928,9 @@ private struct TransactionInsertPayload: Encodable {
         case notes
         case status
         case payment_method
+        case payment_identifier
+        case transaction_hash
+        case bank_scraper_source_id
         case flow_month
         case created_at
         case source_type
