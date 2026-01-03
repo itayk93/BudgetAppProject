@@ -22,7 +22,7 @@ struct CashflowCardsView: View {
     @AppStorage("dashboard.showMonthlyTargetCard") private var showMonthlyTargetCard = true
     @AppStorage("dashboard.showMonthlyTrendCard") private var showMonthlyTrendCard = true
     
-    @State private var showingEditTargetSheet = false
+
     @State private var selectedCategoryForEdit: CashFlowDashboardViewModel.CategorySummary?
     @State private var editingTargetValue: Double?
     @State private var selectedTransactionForEdit: Transaction?
@@ -69,33 +69,40 @@ struct CashflowCardsView: View {
                     }
                 }
             }
-            .sheet(isPresented: $showingEditTargetSheet) {
-                if let category = selectedCategoryForEdit {
-                    EditTargetView(
-                        categoryName: category.name,
-                        target: $editingTargetValue,
-                        onSave: { newTarget in
-                            Task {
-                                await vm.updateTarget(for: category.name, newTarget: newTarget)
-                            }
-                        },
-                        onSuggest: {
-                            return await vm.suggestTarget(for: category.name)
-                        }
-                    )
-                }
+            .sheet(item: $selectedCategoryForEdit) { category in
+                EditTargetView(
+                    categoryName: category.sharedCategory ?? category.name,
+                    target: $editingTargetValue,
+                    isSharedTarget: category.useSharedTarget,
+                    sharedCategoryName: category.sharedCategory,
+                    onSave: { newTarget in
+                        await vm.updateTarget(for: category, newTarget: newTarget)
+                    },
+                    onSuggest: {
+                        await vm.suggestTarget(for: category)
+                    },
+                    onFetchHistory: {
+                        return await vm.fetchCategoryHistory(
+                            categoryName: category.name,
+                            sharedCategory: category.sharedCategory
+                        )
+                    }
+                )
             }
             .sheet(isPresented: $showingMonthlyTargetSheet) {
                 EditTargetView(
                     categoryName: "היעד החודשי",
                     target: $monthlyTargetEditingValue,
                     onSave: { newTarget in
-                        Task {
-                            await vm.updateMonthlyTargetGoal(to: newTarget)
-                        }
+                        await vm.updateMonthlyTargetGoal(to: newTarget)
                     },
                     onSuggest: {
                         await vm.suggestMonthlyTarget()
+                    },
+                    onFetchHistory: {
+                        // Monthly goal history isn't per-category, but we can return empty or implement similar
+                        // For now return empty as we focused on category history
+                        return []
                     }
                 )
             }
@@ -240,6 +247,8 @@ struct CashflowCardsView: View {
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(Color.white.opacity(0.35)))
             }
+            .disabled(!vm.canGoPrevious)
+            .opacity(vm.canGoPrevious ? 1 : 0.3)
             Spacer()
             VStack(spacing: 2) {
                 Text(monthName(vm.currentMonthDate))
@@ -256,6 +265,8 @@ struct CashflowCardsView: View {
                     .frame(width: 36, height: 36)
                     .background(Circle().fill(Color.white.opacity(0.35)))
             }
+            .disabled(!vm.canGoNext)
+            .opacity(vm.canGoNext ? 1 : 0.3)
             HStack(spacing: 10) {
                 Button(action: { showingFilterSheet = true }) {
                     ZStack(alignment: .topTrailing) {
@@ -369,7 +380,14 @@ struct CashflowCardsView: View {
                 group: group,
                 accent: groupAccentColor(for: group.title),
                 currency: vm.selectedCashFlow?.currency ?? "ILS",
-                onEditTransaction: { t in selectedTransactionForEdit = t }
+                onEditTransaction: { t in selectedTransactionForEdit = t },
+                onEditTarget: {
+                    if let member = group.members.first {
+                        selectedCategoryForEdit = member
+                        editingTargetValue = group.target
+
+                    }
+                }
             )
 
         case .category(let cat):
@@ -381,7 +399,7 @@ struct CashflowCardsView: View {
                 onEdit: {
                     selectedCategoryForEdit = cat
                     editingTargetValue = cat.target
-                    showingEditTargetSheet = true
+
                 },
                 onEditBudget: {
                     selectedCategoryForBudgetEdit = cat
@@ -1901,7 +1919,19 @@ private extension CashflowCardsView {
     }
 
     private func groupSection(group: CashFlowDashboardViewModel.GroupSummary, accent: Color) -> some View {
-        GroupSectionCard(group: group, accent: accent, currency: vm.selectedCashFlow?.currency ?? "ILS", onEditTransaction: { t in selectedTransactionForEdit = t })
+        GroupSectionCard(
+            group: group,
+            accent: accent,
+            currency: vm.selectedCashFlow?.currency ?? "ILS",
+            onEditTransaction: { t in selectedTransactionForEdit = t },
+            onEditTarget: {
+                if let member = group.members.first {
+                    selectedCategoryForEdit = member
+                    editingTargetValue = group.target
+
+                }
+            }
+        )
     }
 
 
@@ -2178,6 +2208,11 @@ private extension CashflowCardsView {
                             }
                             ProgressCapsule(progress: targetValue > 0 ? category.totalSpent / targetValue : 0, color: accentColor)
                                 .frame(height: 12)
+                            if category.useSharedTarget, let shared = category.sharedCategory {
+                                Text("היעד מנוהל בקבוצה: \(shared)")
+                                    .font(.caption2)
+                                    .foregroundColor(.secondary)
+                            }
                             if category.isTargetSuggested && targetValue > 0 {
                                 Button(action: { onEdit?() }) {
                                     HStack(spacing: 4) {
@@ -2218,6 +2253,17 @@ private extension CashflowCardsView {
                                     }
                                     Spacer()
                                 }
+                            }
+                            if let onEdit {
+                                Button(action: onEdit) {
+                                    HStack(spacing: 6) {
+                                        Image(systemName: "slider.horizontal.3")
+                                        Text("שנה יעד / צפי")
+                                        Spacer()
+                                    }
+                                }
+                                .buttonStyle(.bordered)
+                                .tint(.blue)
                             }
                         }
                     }
@@ -2572,6 +2618,7 @@ private extension CashflowCardsView {
         let accent: Color
         let currency: String
         let onEditTransaction: (Transaction) -> Void
+        let onEditTarget: (() -> Void)?
         var body: some View {
             SectionCard(
                 title: group.title,
@@ -2584,6 +2631,19 @@ private extension CashflowCardsView {
                 isCurrentMonth: vm.isCurrentMonth
             ) {
                 VStack(spacing: 0) {
+                    if let onEditTarget {
+                        Button(action: onEditTarget) {
+                            HStack {
+                                Image(systemName: "slider.horizontal.3")
+                                Text("שנה יעד / צפי משותף")
+                                Spacer()
+                            }
+                            .padding(.horizontal, 12)
+                        }
+                        .buttonStyle(.bordered)
+                        .tint(accent)
+                        Divider().padding(.leading, 12)
+                    }
                     HStack {
                         Spacer()
                         Text("יצא").font(.footnote).foregroundColor(.secondary).frame(width: 90, alignment: .leading)

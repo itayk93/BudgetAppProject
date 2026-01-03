@@ -13,6 +13,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
     // MARK: - Public enums / models used by Views
 
     enum TimeRange: String, CaseIterable, Identifiable {
+        case currentAndPrev = "חודש נוכחי וקודם"
         case months3 = "3 חודשים"
         case months6 = "6 חודשים"
         case year1   = "שנה"
@@ -40,12 +41,18 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     /// Per-category data for the current month card UI
     struct CategorySummary: Identifiable, Equatable, Hashable {
+        enum TargetSource: Hashable {
+            case individual
+            case shared(String)
+        }
+
         var id: String { name }
         let name: String
         let target: Double?
         let isTargetSuggested: Bool
         let sharedCategory: String?
         let useSharedTarget: Bool
+        let targetSource: TargetSource
         let isIncome: Bool          // New
         let totalSpent: Double
         let weeksInMonth: Int
@@ -67,6 +74,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                    lhs.isTargetSuggested == rhs.isTargetSuggested &&
                    lhs.sharedCategory == rhs.sharedCategory &&
                    lhs.useSharedTarget == rhs.useSharedTarget &&
+                   lhs.targetSource == rhs.targetSource &&
                    lhs.isIncome == rhs.isIncome &&
                    lhs.totalSpent == rhs.totalSpent &&
                    lhs.weeksInMonth == rhs.weeksInMonth &&
@@ -83,6 +91,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
             hasher.combine(isTargetSuggested)
             hasher.combine(sharedCategory)
             hasher.combine(useSharedTarget)
+            hasher.combine(targetSource)
             hasher.combine(isIncome)
             hasher.combine(totalSpent)
             hasher.combine(weeksInMonth)
@@ -139,7 +148,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
     @Published var selectedCashFlow: CashFlow?
     @Published var cashFlows: [CashFlow] = []
 
-    @Published var timeRange: TimeRange = .months6
+    @Published var timeRange: TimeRange = .currentAndPrev
     @Published var currentMonthDate: Date = Date()  // drives cards screen header
 
     @Published var loading: Bool = false
@@ -165,6 +174,37 @@ final class CashFlowDashboardViewModel: ObservableObject {
     // Cache last supporting data so local edits can rebuild UI without refetching
     private var lastMonthlyGoals: [MonthlyGoal] = []
     private var lastEmptyCategories: [UserEmptyCategoryDisplay] = []
+
+    @Published var earliestTransactionDate: Date?
+
+    var canGoNext: Bool {
+        let calendar = Calendar.current
+        let nowComponents = calendar.dateComponents([.year, .month], from: Date())
+        let currentComponents = calendar.dateComponents([.year, .month], from: currentMonthDate)
+        
+        if let ny = nowComponents.year, let nm = nowComponents.month,
+           let cy = currentComponents.year, let cm = currentComponents.month {
+            if cy < ny { return true }
+            if cy == ny && cm < nm { return true }
+            return false
+        }
+        return false
+    }
+
+    var canGoPrevious: Bool {
+        guard let earliest = earliestTransactionDate else { return true }
+        let calendar = Calendar.current
+        let firstComponents = calendar.dateComponents([.year, .month], from: earliest)
+        let currentComponents = calendar.dateComponents([.year, .month], from: currentMonthDate)
+        
+        if let fy = firstComponents.year, let fm = firstComponents.month,
+           let cy = currentComponents.year, let cm = currentComponents.month {
+            if cy > fy { return true }
+            if cy == fy && cm > fm { return true }
+            return false
+        }
+        return false
+    }
 
     struct AccountSnapshot: Identifiable, Hashable {
         let id: String
@@ -243,6 +283,8 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     /// name -> config (display order, shared mapping, weekly flag, etc.)
     private var categoryOrderMap: [String: CategoryOrder] = [:]
+    /// shared category name -> monthly target value (from shared_category_targets)
+    @Published private(set) var sharedTargets: [String: Double] = [:]
 
     /// Sorted list of names from `category_order`, used for category suggestions.
     var allCategoryOrderNames: [String] {
@@ -299,6 +341,9 @@ final class CashFlowDashboardViewModel: ObservableObject {
             selectedCashFlow = fetched.first(where: { $0.is_default == true }) ?? fetched.first
             print("📥 [LOAD INITIAL] Selected cash flow: \(selectedCashFlow?.name ?? "NONE")")
 
+            // Prime charts & cards by first fetching bounds
+            await fetchEarliestTransactionDate()
+
             // Category order is optional (backend MUST return JSON; if not — skip)
             do {
                 let orders = try await categoryOrderService.getCategoryOrders()
@@ -328,6 +373,28 @@ final class CashFlowDashboardViewModel: ObservableObject {
         } catch {
             print("❌ [CATEGORY ORDER] Refresh failed: \(error)")
         }
+    }
+
+    private func loadSharedTargets() async {
+        let names: Set<String> = Set(categoryOrderMap.values.compactMap { order in
+            guard order.useSharedTarget == true, let shared = order.sharedCategory else { return nil }
+            return shared
+        })
+
+        guard !names.isEmpty else {
+            sharedTargets = [:]
+            return
+        }
+
+        var results: [String: Double] = [:]
+
+        for name in names {
+            if let value = try? await categoriesTargetsService.getSharedTarget(sharedCategoryName: name) {
+                results[name] = value
+            }
+        }
+
+        sharedTargets = results
     }
 
     /// Refresh both multi-month charts and single-month cards
@@ -396,6 +463,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
             let monthlyGoals = await goalsMaybe ?? []
             let emptyCategories = await emptyMaybe ?? []
             self.pendingTransactions = try await pendingTxs
+            await loadSharedTargets()
 
 
             // Update global store
@@ -491,6 +559,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
     // Cards screen header buttons
     func previousMonth() {
+        guard canGoPrevious else { return }
         if let d = Calendar.current.date(byAdding: .month, value: -1, to: currentMonthDate) {
             currentMonthDate = d
             Task { await refreshData() }
@@ -498,34 +567,57 @@ final class CashFlowDashboardViewModel: ObservableObject {
     }
 
     func nextMonth() {
+        guard canGoNext else { return }
         if let d = Calendar.current.date(byAdding: .month, value: 1, to: currentMonthDate) {
             currentMonthDate = d
             Task { await refreshData() }
         }
     }
 
-    func updateTarget(for categoryName: String, newTarget: Double) async {
+    func updateTarget(for category: CategorySummary, newTarget: Double) async {
         do {
-            try await categoriesTargetsService.updateMonthlyTarget(categoryName: categoryName, target: newTarget)
-            print("✅ [TARGET] Updated target for '\(categoryName)' to \(newTarget)")
+            if category.useSharedTarget, let sharedName = category.sharedCategory {
+                try await categoriesTargetsService.updateSharedTarget(sharedCategoryName: sharedName, target: newTarget)
+                sharedTargets[sharedName] = newTarget
+                print("✅ [TARGET] Updated shared target '\(sharedName)' to \(newTarget)")
+            } else {
+                try await categoriesTargetsService.updateMonthlyTarget(categoryName: category.name, target: newTarget)
+                updateLocalCategoryOrderTarget(categoryName: category.name, newTarget: newTarget)
+                print("✅ [TARGET] Updated target for '\(category.name)' to \(newTarget)")
+            }
             await refreshData()
         } catch {
             print("❌ [TARGET] Failed to update target: \(error)")
-            // Fallback: Update locally if API fails? Or better to show error.
-            // For now, consistent with existing behavior, we might want to just log.
-            // But let's keep the local update as temporary fallback so UI feels responsive?
-            // No, user requested "updateTarget(for:) ... perform network calls", so we rely on backend.
             errorMessage = "עדכון היעד נכשל: \(error.localizedDescription)"
         }
     }
 
-    func suggestTarget(for categoryName: String) async -> Double {
+    func suggestTarget(for category: CategorySummary) async -> Double? {
+        if category.useSharedTarget, let sharedName = category.sharedCategory {
+            do {
+                try await categoriesTargetsService.calculateSharedTargets(force: true)
+                if let updated = try await categoriesTargetsService.getSharedTarget(sharedCategoryName: sharedName) {
+                    sharedTargets[sharedName] = updated
+                    await refreshData()
+                    return updated
+                }
+            } catch {
+                print("❌ [SUGGEST] Failed to calculate shared target: \(error)")
+                errorMessage = "חישוב יעד משותף נכשל: \(error.localizedDescription)"
+            }
+            return nil
+        }
+
         do {
-            let suggestion = try await categoriesTargetsService.calculateMonthlyTarget(categoryName: categoryName)
+            let suggestion = try await categoriesTargetsService.calculateMonthlyTarget(categoryName: category.name)
+            try await categoriesTargetsService.updateMonthlyTarget(categoryName: category.name, target: suggestion)
+            updateLocalCategoryOrderTarget(categoryName: category.name, newTarget: suggestion)
+            await refreshData()
             return suggestion
         } catch {
             print("❌ [SUGGEST] Failed to get suggestion: \(error)")
-            return 0
+            errorMessage = "חישוב יעד נכשל: \(error.localizedDescription)"
+            return nil
         }
     }
 
@@ -538,6 +630,32 @@ final class CashFlowDashboardViewModel: ObservableObject {
         let base = max(500, totals.net * 0.5)
         let rounded = (base / 50).rounded() * 50
         return max(rounded, 500)
+    }
+
+    private func updateLocalCategoryOrderTarget(categoryName: String, newTarget: Double) {
+        if let existingCategoryOrder = categoryOrderMap[categoryName] {
+            let updatedCategoryOrder = CategoryOrder(
+                id: existingCategoryOrder.id,
+                categoryName: existingCategoryOrder.categoryName,
+                displayOrder: existingCategoryOrder.displayOrder,
+                weeklyDisplay: existingCategoryOrder.weeklyDisplay,
+                monthlyTarget: String(newTarget),
+                sharedCategory: existingCategoryOrder.sharedCategory,
+                useSharedTarget: existingCategoryOrder.useSharedTarget
+            )
+            categoryOrderMap[categoryName] = updatedCategoryOrder
+        } else {
+            let newCategoryOrder = CategoryOrder(
+                id: nil,
+                categoryName: categoryName,
+                displayOrder: nil,
+                weeklyDisplay: nil,
+                monthlyTarget: String(newTarget),
+                sharedCategory: nil,
+                useSharedTarget: nil
+            )
+            categoryOrderMap[categoryName] = newCategoryOrder
+        }
     }
 
     // Exposed helpers used by view
@@ -682,6 +800,9 @@ final class CashFlowDashboardViewModel: ObservableObject {
             isIncome: transaction.isIncome,
             business_name: transaction.business_name,
             payment_method: transaction.payment_method,
+            payment_identifier: transaction.payment_identifier,
+            transaction_hash: transaction.transaction_hash,
+            bank_scraper_source_id: transaction.bank_scraper_source_id,
             createdAtDate: transaction.createdAtDate,
             currency: transaction.currency,
             absoluteAmount: transaction.absoluteAmount,
@@ -778,11 +899,15 @@ final class CashFlowDashboardViewModel: ObservableObject {
 
         for (name, txs) in groupedTransactions {
             let cfg = categoryOrderMap[name]
-            var target = cfg?.monthlyTarget.flatMap { Double($0) }
+            let useShared = cfg?.useSharedTarget ?? false
+            let sharedName = cfg?.sharedCategory?.trimmingCharacters(in: .whitespacesAndNewlines)
+            let sharedTarget = (useShared && sharedName != nil) ? sharedTargets[sharedName!] : nil
+            var target = sharedTarget ?? cfg?.monthlyTarget.flatMap { Double($0) }
             var isSuggested = false
+            let targetSource: CategorySummary.TargetSource = (useShared && sharedName != nil) ? .shared(sharedName!) : .individual
 
             // Suggest target based on historical data if no explicit target is set
-            if target == nil {
+            if target == nil && !useShared {
                 // Calculation for 3-month average suggestion (similar to existing logic)
                 let calendar = Calendar.current
                 var monthDates: [Date] = []
@@ -828,7 +953,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
             var weekly: [Int: Double] = [:]
             var weeklyTransactions: [Int: [Transaction]] = [:]
 
-            let isWeeklyCategory = cfg?.weeklyDisplay ?? false
+                let isWeeklyCategory = cfg?.weeklyDisplay ?? false
 
             for t in txs {
                 let parsed = t.parsedDate
@@ -866,7 +991,8 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 target: target,
                 isTargetSuggested: isSuggested,
                 sharedCategory: cfg?.sharedCategory,
-                useSharedTarget: cfg?.useSharedTarget ?? false,
+                useSharedTarget: useShared,
+                targetSource: targetSource,
                 isIncome: isIncome, // New
                 totalSpent: sum, // Will be totalEarned for income
                 weeksInMonth: weeksInMonth,
@@ -891,15 +1017,20 @@ final class CashFlowDashboardViewModel: ObservableObject {
                                      (isNonCashflow && (cfg.sharedCategory == "לא בתזרים" || emptyCat.categoryName.contains("לא תזרימיות")))
 
                     if isRelevant {
-                        let targetVal = cfg.monthlyTarget.flatMap { Double($0) }
+                        let useShared = cfg.useSharedTarget ?? false
+                        let sharedName = cfg.sharedCategory
+                        let sharedTarget = (useShared && sharedName != nil) ? sharedTargets[sharedName!] : nil
+                        let targetVal = sharedTarget ?? cfg.monthlyTarget.flatMap { Double($0) }
                         let expectedVal = (targetVal ?? 0) / Double(max(weeksInMonth, 1))
+                        let source: CategorySummary.TargetSource = (useShared && sharedName != nil) ? .shared(sharedName!) : .individual
                         
                         summaries.append(.init(
                             name: emptyCat.categoryName,
                             target: targetVal,
                             isTargetSuggested: false,
                             sharedCategory: cfg.sharedCategory,
-                            useSharedTarget: cfg.useSharedTarget ?? false,
+                            useSharedTarget: useShared,
+                            targetSource: source,
                             isIncome: isIncome, // New
                             totalSpent: 0,
                             weeksInMonth: weeksInMonth,
@@ -1096,6 +1227,10 @@ final class CashFlowDashboardViewModel: ObservableObject {
                 // Determine target - check if any have a target
                 let mergedTarget = duplicates.compactMap { $0.target }.first
                 let isTargetSuggested = duplicates.contains { $0.isTargetSuggested }
+                let mergedSource = duplicates.compactMap { summary -> CategorySummary.TargetSource? in
+                    if case .shared = summary.targetSource { return summary.targetSource }
+                    return nil
+                }.first ?? duplicates.first?.targetSource ?? .individual
                 
                 for t in combinedTxs {
                     let parsed = t.parsedDate
@@ -1144,6 +1279,7 @@ final class CashFlowDashboardViewModel: ObservableObject {
                     isTargetSuggested: isTargetSuggested,
                     sharedCategory: anyCfg?.sharedCategory,
                     useSharedTarget: anyCfg?.useSharedTarget ?? false,
+                    targetSource: mergedSource,
                     isIncome: duplicates.first?.isIncome ?? false,
                     totalSpent: mergedTotalSpent,
                     weeksInMonth: weeksInMonth,
@@ -1294,9 +1430,35 @@ final class CashFlowDashboardViewModel: ObservableObject {
         sharedGroups = [:]
     }
 
+    func fetchEarliestTransactionDate() async {
+        guard let cf = selectedCashFlow else { return }
+        let items = [
+            URLQueryItem(name: "cash_flow_id", value: cf.id),
+            URLQueryItem(name: "sort_by", value: "payment_date"),
+            URLQueryItem(name: "order", value: "asc"),
+            URLQueryItem(name: "per_page", value: "1")
+        ]
+        
+        do {
+            let txs = try await apiClient.fetchTransactionsFlexible(query: items)
+            if let first = txs.first, let date = first.parsedDate {
+                self.earliestTransactionDate = date
+                print("📅 [BOUNDS] Earliest transaction: \(date)")
+            }
+        } catch {
+            print("⚠️ [BOUNDS] Failed to fetch earliest date: \(error)")
+        }
+    }
+
     private func dateRange(for range: TimeRange) -> (start: Date, end: Date) {
         let end = Date()
-        let months: Int = (range == .months3 ? 3 : range == .months6 ? 6 : 12)
+        let months: Int
+        switch range {
+        case .currentAndPrev: months = 1
+        case .months3: months = 3
+        case .months6: months = 6
+        case .year1: months = 12
+        }
         let start = Calendar.current.date(byAdding: .month, value: -months, to: end)!
         return (start, end)
     }
@@ -1346,6 +1508,76 @@ final class CashFlowDashboardViewModel: ObservableObject {
         recalculateTotals(for: transactions)
         buildCharts(txs: transactions, goals: lastMonthlyGoals, emptyCategories: lastEmptyCategories)
         buildCardsForCurrentMonth(all: transactions, emptyCategories: lastEmptyCategories)
+    }
+    func fetchCategoryHistory(categoryName: String, sharedCategory: String?) async -> [(month: String, total: Double)] {
+        guard let cf = selectedCashFlow else { return [] }
+        
+        // Range: Last 5 months
+        let cal = Calendar.current
+        let end = Date()
+        let start = cal.date(byAdding: .month, value: -4, to: end)!
+        
+        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+        
+        // Build query
+        // Note: We need to filter by category name OR shared category depending on context
+        // But the API flexible search allows filtering by category_name.
+        // For accurate results, we fetch all for the CF and filter locally or ask backend to filter if supported.
+        // `fetchTransactionsFlexible` supports generic query params. Let's try to filter by category_name if possible,
+        // but typically name matching logic (normalization) is complex.
+        // Safer approach: Query all for range and filter locally (similar to how we build summaries).
+        // Optimization: 6 months of data isn't HUGE, but for a single category it's better to filter on server if possible.
+        // Let's stick to local filter for correctness with existing logic (effectiveCategoryName).
+        
+        let items = [
+            URLQueryItem(name: "cash_flow_id", value: cf.id),
+            URLQueryItem(name: "show_all", value: "true"),
+            URLQueryItem(name: "start_date", value: f.string(from: start)),
+            URLQueryItem(name: "end_date", value: f.string(from: end))
+        ]
+        
+        do {
+            let txs = try await apiClient.fetchTransactionsFlexible(query: items)
+            
+            // Filter
+            let relevant = txs.filter { t in
+                if t.normalizedAmount >= 0 { return false } // Only expenses
+                if let shared = sharedCategory, let order = categoryOrderMap[t.effectiveCategoryName], order.sharedCategory == shared {
+                    return true
+                }
+                return t.effectiveCategoryName == categoryName
+            }
+            
+            // Group by month
+            var monthly: [String: Double] = [:]
+            let monthF = DateFormatter(); monthF.dateFormat = "MMM"
+            monthF.locale = Locale(identifier: "he_IL")
+            
+            // We want strict calendar months
+            let groupF = DateFormatter(); groupF.dateFormat = "yyyy-MM"
+            
+            for t in relevant {
+                guard let d = t.parsedDate else { continue }
+                let key = groupF.string(from: d)
+                monthly[key, default: 0] += abs(t.normalizedAmount)
+            }
+            
+            // Sort and format for UI
+            let sortedKeys = monthly.keys.sorted()
+            // We want exactly the last 5 slots max.
+            let limitedKeys = sortedKeys.suffix(5)
+            
+            return limitedKeys.map { key -> (String, Double) in
+                if let date = groupF.date(from: key) {
+                    return (monthF.string(from: date), monthly[key]!)
+                }
+                return (key, monthly[key]!)
+            }
+            
+        } catch {
+            print("❌ [HISTORY] Failed: \(error)")
+            return []
+        }
     }
 }
 

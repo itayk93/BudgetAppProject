@@ -96,6 +96,9 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
                     isIncome: transaction.isIncome,
                     business_name: transaction.business_name,
                     payment_method: transaction.payment_method,
+                    payment_identifier: transaction.payment_identifier,
+                    transaction_hash: transaction.transaction_hash,
+                    bank_scraper_source_id: transaction.bank_scraper_source_id,
                     createdAtDate: transaction.createdAtDate,
                     currency: transaction.currency,
                     absoluteAmount: transaction.absoluteAmount,
@@ -145,6 +148,9 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
                     isIncome: transaction.isIncome,
                     business_name: transaction.business_name,
                     payment_method: transaction.payment_method,
+                    payment_identifier: transaction.payment_identifier,
+                    transaction_hash: transaction.transaction_hash,
+                    bank_scraper_source_id: transaction.bank_scraper_source_id,
                     createdAtDate: transaction.createdAtDate,
                     currency: transaction.currency,
                     absoluteAmount: transaction.absoluteAmount,
@@ -185,6 +191,9 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
                     isIncome: transaction.isIncome,
                     business_name: transaction.business_name,
                     payment_method: transaction.payment_method,
+                    payment_identifier: transaction.payment_identifier,
+                    transaction_hash: transaction.transaction_hash,
+                    bank_scraper_source_id: transaction.bank_scraper_source_id,
                     createdAtDate: transaction.createdAtDate,
                     currency: transaction.currency,
                     absoluteAmount: transaction.absoluteAmount,
@@ -318,22 +327,44 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
     func splitTransaction(
         _ transaction: Transaction,
         originalTransactionId: String,
-        splits: [SplitTransactionEntry]
+        splits: [SplitTransactionEntry],
+        cashFlowID: String
     ) async throws {
         processingTransactionID = transaction.id
+        guard let service = service else {
+            processingTransactionID = nil
+            return
+        }
+        
         do {
-            // Call the updated service method with individual parameters
-            try await transactionsService.splitTransaction(
-                originalTransactionId: originalTransactionId,
-                splits: splits
-            )
+            // Check if ID is integer (Pending Transaction from scraper)
+            // If it is an integer, we must use client-side splitting because the backend
+            // `transactions/split` endpoint expects a UUID.
+            if Int64(originalTransactionId) != nil {
+                print("🔀 [SPLIT] Detected integer ID (\(originalTransactionId)). Using client-side split.")
+                try await service.applySplit(originalTransaction: transaction, splits: splits, cashFlowID: cashFlowID)
+            } else {
+                print("🔀 [SPLIT] Detected UUID (\(originalTransactionId)). Using backend split endpoint.")
+                // Call the updated service method with individual parameters
+                try await transactionsService.splitTransaction(
+                    originalTransactionId: originalTransactionId,
+                    splits: splits
+                )
+            }
+            
             if let index = transactions.firstIndex(where: { $0.id == transaction.id }) {
+                // If we are looking at "Pending" review, we might want to remove it or update it.
+                // The original code updated it.
+                
                 let updated = Transaction(
                     id: transaction.id,
                     effectiveCategoryName: transaction.effectiveCategoryName,
                     isIncome: transaction.isIncome,
                     business_name: transaction.business_name,
                     payment_method: transaction.payment_method,
+                    payment_identifier: transaction.payment_identifier,
+                    transaction_hash: transaction.transaction_hash,
+                    bank_scraper_source_id: transaction.bank_scraper_source_id,
                     createdAtDate: transaction.createdAtDate,
                     currency: transaction.currency,
                     absoluteAmount: transaction.absoluteAmount,
@@ -417,6 +448,9 @@ final class PendingTransactionsReviewViewModel: ObservableObject {
                     isIncome: tx.isIncome,
                     business_name: tx.business_name,
                     payment_method: tx.payment_method,
+                    payment_identifier: tx.payment_identifier,
+                    transaction_hash: tx.transaction_hash,
+                    bank_scraper_source_id: tx.bank_scraper_source_id,
                     createdAtDate: tx.createdAtDate,
                     currency: tx.currency,
                     absoluteAmount: tx.absoluteAmount,

@@ -41,6 +41,20 @@ final class CategoriesTargetsService {
         }
     }
 
+    func updateSharedTarget(sharedCategoryName: String, target: Double) async throws {
+        let url = base.appendingPathComponent("categories/update-shared-target")
+        var req = URLRequest(url: url)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        auth(&req)
+        let body: [String: Any] = ["sharedCategoryName": sharedCategoryName, "target": target]
+        req.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APIError(message: "update shared target failed")
+        }
+    }
+
     func getSpendingHistory(categoryName: String, months: Int = 12) async throws -> [(String, Double)] {
         var comps = URLComponents(
             url: base.appendingPathComponent(
@@ -69,8 +83,24 @@ final class CategoriesTargetsService {
         auth(&req)
         let (data, resp) = try await URLSession.shared.data(for: req)
         guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else { return nil }
-        struct Resp: Decodable { let target: Double? }
-        return try? JSONDecoder().decode(Resp.self, from: data).target
+
+        // Endpoint sometimes returns target as a raw number and sometimes as an object
+        // with `monthly_target`. Parse both shapes defensively.
+        guard let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+        if let direct = json["target"] as? Double {
+            return direct
+        }
+
+        if let targetDict = json["target"] as? [String: Any], let monthly = targetDict["monthly_target"] as? Double {
+            return monthly
+        }
+
+        if let monthly = json["monthly_target"] as? Double {
+            return monthly
+        }
+
+        return nil
     }
 
     func setUseSharedTarget(categoryName: String, useShared: Bool, sharedCategoryName: String?) async throws {
@@ -88,7 +118,7 @@ final class CategoriesTargetsService {
         }
     }
 
-    func calculateSharedTargets(force: Bool = true) async {
+    func calculateSharedTargets(force: Bool = true) async throws {
         let url = base.appendingPathComponent("categories/calculate-shared-targets")
         var req = URLRequest(url: url)
         req.httpMethod = "POST"
@@ -96,6 +126,9 @@ final class CategoriesTargetsService {
         auth(&req)
         let body: [String: Any] = ["force": force]
         req.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        _ = try? await URLSession.shared.data(for: req)
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw APIError(message: "calculate shared targets failed")
+        }
     }
 }
