@@ -294,7 +294,6 @@ final class SupabaseTransactionsReviewService {
         AppLogger.log("⚙️ [DEBUG] Reverting \(transactionIDs.count) transactions to pending")
         let payload = TransactionUpdatePayload(
             category_name: nil,
-            effective_category_name: nil,
             status: "pending",
             reviewed_at: nil,
             notes: nil,
@@ -636,7 +635,6 @@ final class SupabaseTransactionsReviewService {
         let cleanedNote = sanitize(note)
         let payload = TransactionUpdatePayload(
             category_name: categoryName,
-            effective_category_name: effectiveCategoryName,
             status: markReviewed ? "reviewed" : nil,
             reviewed_at: markReviewed ? isoFormatter.string(from: Date()) : nil,
             notes: cleanedNote,
@@ -844,7 +842,6 @@ private struct TransactionIDRow: Decodable {
 
 private struct TransactionUpdatePayload: Encodable {
     let category_name: String?
-    let effective_category_name: String?
     let status: String?
     let reviewed_at: String?
     let notes: String?
@@ -852,7 +849,6 @@ private struct TransactionUpdatePayload: Encodable {
 
     enum CodingKeys: String, CodingKey {
         case category_name
-        case effective_category_name
         case status
         case reviewed_at
         case notes
@@ -863,9 +859,6 @@ private struct TransactionUpdatePayload: Encodable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         if let category_name {
             try container.encode(category_name, forKey: .category_name)
-        }
-        if let effective_category_name {
-            try container.encode(effective_category_name, forKey: .effective_category_name)
         }
         if let status {
             try container.encode(status, forKey: .status)
