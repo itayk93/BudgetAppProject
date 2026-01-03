@@ -96,7 +96,8 @@ struct PendingTransactionsReviewView: View {
                             try await viewModel.splitTransaction(
                                 transaction,
                                 originalTransactionId: originalTransactionId,
-                                splits: splits
+                                splits: splits,
+                                cashFlowID: cashFlowID
                             )
                         } catch {
                             viewModel.errorMessage = error.localizedDescription
@@ -331,6 +332,10 @@ struct PendingTransactionsReviewView: View {
         .padding(.horizontal, 20)
     }
 
+    private var isBlockingPrimaryActions: Bool {
+        moveFlowMonthExpanded && !isMovingFlowMonth
+    }
+
     private func primaryActions(for transaction: Transaction) -> some View {
         let isProcessing = viewModel.processingTransactionID == transaction.id
         return HStack(spacing: 12) {
@@ -355,8 +360,8 @@ struct PendingTransactionsReviewView: View {
                  .foregroundColor(.white)
              }
              .buttonStyle(.plain)
-             .disabled(isProcessing)
-             .opacity(isProcessing ? 0.6 : 1)
+             .disabled(isProcessing || isBlockingPrimaryActions)
+             .opacity(isProcessing || isBlockingPrimaryActions ? 0.6 : 1)
 
              // Edit Button (Secondary style - transparent with border) - NOW SECOND (Left in RTL)
              Button {
@@ -377,6 +382,8 @@ struct PendingTransactionsReviewView: View {
                  .foregroundColor(.accentColor)
              }
              .buttonStyle(.plain)
+             .disabled(isBlockingPrimaryActions)
+             .opacity(isBlockingPrimaryActions ? 0.6 : 1)
         }
     }
 
